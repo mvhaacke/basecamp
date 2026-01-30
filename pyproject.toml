@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68.0", "setuptools-scm>=8.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "basecamp"
+version = "0.1.0"
+description = "Personal triathlon training analysis tool"
+requires-python = ">=3.11"
+dependencies = [
+    "stravalib>=2.0",
+    "sqlalchemy>=2.0",
+    "typer>=0.12",
+    "rich>=13.0",
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+basecamp = "basecamp.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
