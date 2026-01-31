@@ -42,7 +42,7 @@ def sync(
 
 @app.command()
 def activities(
-    limit: int = typer.Option(20, "--limit", "-n", help="Number of activities to show"),
+    limit: int = typer.Option(20, "--limit", "-l", help="Number of activities to show"),
     sport: str = typer.Option(None, "--sport", "-s", help="Filter by sport type (e.g. Run, Ride, Swim)"),
 ):
     """List synced activities."""
