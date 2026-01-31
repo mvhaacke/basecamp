@@ -3,8 +3,8 @@ from datetime import datetime, timezone
 
 from rich.console import Console
 
-from basecamp.db import Activity, Stream, get_session, init_db
-from basecamp.strava.auth import get_authenticated_client
+from ..db import Activity, Stream, get_session, init_db
+from ..strava.auth import get_authenticated_client
 
 console = Console()
 
@@ -14,29 +14,51 @@ STREAM_TYPES = [
 ]
 
 
+def _safe_float(val) -> float | None:
+    """Safely convert stravalib quantity (pint) or raw value to float."""
+    if val is None:
+        return None
+    try:
+        # pint Quantity objects have a .magnitude attribute
+        if hasattr(val, "magnitude"):
+            return float(val.magnitude)
+        return float(val)
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_int(val) -> int | None:
+    """Safely convert stravalib quantity or raw value to int (seconds)."""
+    f = _safe_float(val)
+    return int(f) if f is not None else None
+
+
 def _activity_to_dict(act) -> dict:
-    """Extract fields from a stravalib Activity object into a dict for our DB model."""
+    """Extract fields from a stravalib Activity object into a dict for our DB model.
+    Uses getattr throughout since get_activities() returns SummaryActivity objects
+    which lack some fields that only DetailedActivity has (e.g. calories, description).
+    """
     return dict(
         id=act.id,
-        sport_type=str(act.sport_type) if act.sport_type else str(act.type),
-        name=act.name,
+        sport_type=str(getattr(act, "sport_type", None) or getattr(act, "type", "")),
+        name=getattr(act, "name", None),
         description=getattr(act, "description", None),
-        start_date=act.start_date,
-        timezone=str(act.timezone) if act.timezone else None,
-        distance=float(act.distance) if act.distance else None,
-        moving_time=int(act.moving_time.total_seconds()) if act.moving_time else None,
-        elapsed_time=int(act.elapsed_time.total_seconds()) if act.elapsed_time else None,
-        total_elevation_gain=float(act.total_elevation_gain) if act.total_elevation_gain else None,
-        average_speed=float(act.average_speed) if act.average_speed else None,
-        max_speed=float(act.max_speed) if act.max_speed else None,
-        average_heartrate=act.average_heartrate,
-        max_heartrate=act.max_heartrate,
-        average_watts=act.average_watts,
-        max_watts=getattr(act, "max_watts", None),
-        weighted_average_watts=getattr(act, "weighted_average_watts", None),
-        average_cadence=act.average_cadence,
-        calories=act.calories,
-        gear_id=act.gear_id,
+        start_date=getattr(act, "start_date", None),
+        timezone=str(act.timezone) if getattr(act, "timezone", None) else None,
+        distance=_safe_float(getattr(act, "distance", None)),
+        moving_time=_safe_int(getattr(act, "moving_time", None)),
+        elapsed_time=_safe_int(getattr(act, "elapsed_time", None)),
+        total_elevation_gain=_safe_float(getattr(act, "total_elevation_gain", None)),
+        average_speed=_safe_float(getattr(act, "average_speed", None)),
+        max_speed=_safe_float(getattr(act, "max_speed", None)),
+        average_heartrate=_safe_float(getattr(act, "average_heartrate", None)),
+        max_heartrate=_safe_float(getattr(act, "max_heartrate", None)),
+        average_watts=_safe_float(getattr(act, "average_watts", None)),
+        max_watts=_safe_float(getattr(act, "max_watts", None)),
+        weighted_average_watts=_safe_float(getattr(act, "weighted_average_watts", None)),
+        average_cadence=_safe_float(getattr(act, "average_cadence", None)),
+        calories=_safe_float(getattr(act, "calories", None)),
+        gear_id=getattr(act, "gear_id", None),
     )
 
 
@@ -62,7 +84,11 @@ def sync_activities(include_streams: bool = False):
 
         for act in activities:
             data = _activity_to_dict(act)
-            data["raw_json"] = json.dumps(act.dict() if hasattr(act, "dict") else {"id": act.id}, default=str)
+            try:
+                raw = act.model_dump() if hasattr(act, "model_dump") else act.dict() if hasattr(act, "dict") else {"id": act.id}
+            except Exception:
+                raw = {"id": act.id}
+            data["raw_json"] = json.dumps(raw, default=str)
             data["synced_at"] = datetime.now(timezone.utc)
 
             existing = session.get(Activity, act.id)

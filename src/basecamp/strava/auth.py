@@ -47,7 +47,10 @@ def get_authenticated_client() -> Client:
     if not token:
         raise RuntimeError("Not authenticated. Run 'basecamp auth' first.")
 
-    client = Client()
+    client = Client(
+        access_token=token.access_token,
+        refresh_token=token.refresh_token,
+    )
 
     if token.expires_at < time.time():
         refresh_response = client.refresh_access_token(
@@ -61,8 +64,7 @@ def get_authenticated_client() -> Client:
             expires_at=refresh_response["expires_at"],
         )
         client.access_token = refresh_response["access_token"]
-    else:
-        client.access_token = token.access_token
+        client.refresh_token = refresh_response["refresh_token"]
 
     return client
 
