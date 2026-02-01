@@ -1,9 +1,13 @@
+import logging
 import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from stravalib import Client
+
+# Suppress stravalib's rate limiter warnings (we handle rate limits ourselves)
+logging.getLogger("stravalib.util.limiter").setLevel(logging.ERROR)
 
 from basecamp.config import STRAVA_CLIENT_ID, STRAVA_CLIENT_SECRET, STRAVA_REDIRECT_URI
 from basecamp.database import get_session
@@ -44,6 +48,7 @@ def get_authenticated_client() -> Client:
     client = Client(
         access_token=token.access_token,
         refresh_token=token.refresh_token,
+        token_expires=token.expires_at,
     )
 
     if token.expires_at < time.time():
