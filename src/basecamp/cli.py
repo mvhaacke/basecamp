@@ -261,12 +261,17 @@ def garmin_auth():
 @garmin_app.command("sync")
 def garmin_sync(
     days: int = typer.Option(30, "--days", "-d", help="Number of days to sync"),
+    start: str = typer.Option(None, "--start", help="Start date (YYYY-MM-DD), overrides --days"),
+    end: str = typer.Option(None, "--end", help="End date (YYYY-MM-DD), defaults to yesterday"),
 ):
     """Sync wellness data from Garmin Connect."""
     from basecamp.garmin.sync import sync_wellness
 
+    start_date = datetime.strptime(start, "%Y-%m-%d").date() if start else None
+    end_date = datetime.strptime(end, "%Y-%m-%d").date() if end else None
+
     try:
-        sync_wellness(days=days)
+        sync_wellness(days=days, start=start_date, end=end_date)
     except Exception as e:
         console.print(f"[red]Garmin sync failed: {e}[/red]")
         raise typer.Exit(1)

@@ -161,7 +161,7 @@ def _get_display_name(client) -> str:
     return profile.get("displayName", "")
 
 
-def sync_wellness(days: int = 30) -> None:
+def sync_wellness(days: int = 30, start: date | None = None, end: date | None = None) -> None:
     """Fetch daily wellness data from Garmin and upsert to DB."""
     init_db()
     client = get_client()
@@ -169,32 +169,37 @@ def sync_wellness(days: int = 30) -> None:
     session = get_session()
 
     try:
-        latest = (
-            session.query(GarminDailySummary)
-            .order_by(GarminDailySummary.date.desc())
-            .first()
-        )
-
         today = date.today()
         yesterday = today - timedelta(days=1)
-        earliest = today - timedelta(days=days)
 
-        if latest and latest.date:
-            incremental_start = latest.date + timedelta(days=1)
-            start_date = max(earliest, incremental_start)
+        if start:
+            start_date = start
+            end_date = end or yesterday
         else:
-            start_date = earliest
+            latest = (
+                session.query(GarminDailySummary)
+                .order_by(GarminDailySummary.date.desc())
+                .first()
+            )
+            earliest = today - timedelta(days=days)
 
-        if start_date > yesterday:
+            if latest and latest.date:
+                incremental_start = latest.date + timedelta(days=1)
+                start_date = max(earliest, incremental_start)
+            else:
+                start_date = earliest
+            end_date = yesterday
+
+        if start_date > end_date:
             console.print("Already up to date.")
             return
 
-        total_days = (yesterday - start_date).days + 1
-        console.print(f"Syncing {total_days} days of wellness data ({start_date} to {yesterday})...")
+        total_days = (end_date - start_date).days + 1
+        console.print(f"Syncing {total_days} days of wellness data ({start_date} to {end_date})...")
 
         current = start_date
         count = 0
-        while current <= yesterday:
+        while current <= end_date:
             date_str = current.isoformat()
             console.print(f"  [{count + 1}/{total_days}] {date_str}...")
 
