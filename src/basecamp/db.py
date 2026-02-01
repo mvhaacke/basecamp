@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy import (
     Boolean,
     Column,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -53,7 +54,16 @@ class Activity(Base):
     weighted_average_watts = Column(Float)
     average_cadence = Column(Float)
     calories = Column(Float)
+    kilojoules = Column(Float)
     gear_id = Column(String)
+    elev_high = Column(Float)
+    elev_low = Column(Float)
+    start_date_local = Column(DateTime)
+    device_watts = Column(Boolean)
+    trainer = Column(Boolean)
+    workout_type = Column(Integer)
+    has_heartrate = Column(Boolean)
+    estimated_kilojoules = Column(Float)
     has_streams = Column(Boolean, default=False)
     raw_json = Column(Text)
     synced_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
@@ -78,6 +88,57 @@ class Stream(Base):
     synced_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     activity = relationship("Activity", back_populates="streams")
+
+
+class GarminDailySummary(Base):
+    __tablename__ = "garmin_daily_summaries"
+
+    date = Column(Date, primary_key=True)
+
+    # Sleep
+    sleep_score = Column(Integer)
+    sleep_duration = Column(Integer)
+    sleep_deep = Column(Integer)
+    sleep_light = Column(Integer)
+    sleep_rem = Column(Integer)
+    sleep_awake = Column(Integer)
+
+    # HRV
+    hrv_weekly_avg = Column(Float)
+    hrv_last_night = Column(Float)
+    hrv_status = Column(String)
+
+    # Body Battery
+    body_battery_high = Column(Integer)
+    body_battery_low = Column(Integer)
+    body_battery_charged = Column(Integer)
+    body_battery_drained = Column(Integer)
+
+    # Stress
+    stress_avg = Column(Integer)
+    stress_max = Column(Integer)
+    stress_rest = Column(Integer)
+
+    # Heart Rate
+    resting_hr = Column(Integer)
+
+    # SpO2
+    spo2_avg = Column(Float)
+    spo2_low = Column(Float)
+
+    # Training
+    training_readiness_score = Column(Float)
+
+    # Raw API responses
+    raw_sleep = Column(Text)
+    raw_hrv = Column(Text)
+    raw_body_battery = Column(Text)
+    raw_stress = Column(Text)
+    raw_summary = Column(Text)
+    raw_training_readiness = Column(Text)
+    raw_spo2 = Column(Text)
+
+    synced_at = Column(DateTime)
 
 
 engine = create_engine(DATABASE_URL)

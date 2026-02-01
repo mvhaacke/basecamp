@@ -1,5 +1,7 @@
 import json
+import time as time_mod
 from datetime import datetime, timezone
+from dateutil.parser import parse as parse_date
 
 from rich.console import Console
 
@@ -58,11 +60,84 @@ def _activity_to_dict(act) -> dict:
         weighted_average_watts=_safe_float(getattr(act, "weighted_average_watts", None)),
         average_cadence=_safe_float(getattr(act, "average_cadence", None)),
         calories=_safe_float(getattr(act, "calories", None)),
+        kilojoules=_safe_float(getattr(act, "kilojoules", None)),
         gear_id=getattr(act, "gear_id", None),
+        elev_high=_safe_float(getattr(act, "elev_high", None)),
+        elev_low=_safe_float(getattr(act, "elev_low", None)),
+        start_date_local=getattr(act, "start_date_local", None),
+        device_watts=getattr(act, "device_watts", None),
+        trainer=getattr(act, "trainer", None),
+        workout_type=_safe_int(getattr(act, "workout_type", None)),
+        has_heartrate=getattr(act, "has_heartrate", None),
     )
 
 
-def sync_activities(include_streams: bool = False):
+def _safe_date(val) -> datetime | None:
+    """Parse a date string into a datetime object."""
+    if val is None:
+        return None
+    if isinstance(val, datetime):
+        return val
+    try:
+        return parse_date(str(val))
+    except (ValueError, TypeError):
+        return None
+
+
+def _extract_from_raw(raw: dict) -> dict:
+    """Extract all tracked fields from a raw Strava JSON response."""
+    return dict(
+        sport_type=str(raw.get("sport_type") or raw.get("type", "")),
+        name=raw.get("name"),
+        description=raw.get("description"),
+        start_date=_safe_date(raw.get("start_date")),
+        timezone=raw.get("timezone"),
+        distance=_safe_float(raw.get("distance")),
+        moving_time=_safe_int(raw.get("moving_time")),
+        elapsed_time=_safe_int(raw.get("elapsed_time")),
+        total_elevation_gain=_safe_float(raw.get("total_elevation_gain")),
+        average_speed=_safe_float(raw.get("average_speed")),
+        max_speed=_safe_float(raw.get("max_speed")),
+        average_heartrate=_safe_float(raw.get("average_heartrate")),
+        max_heartrate=_safe_float(raw.get("max_heartrate")),
+        average_watts=_safe_float(raw.get("average_watts")),
+        max_watts=_safe_float(raw.get("max_watts")),
+        weighted_average_watts=_safe_float(raw.get("weighted_average_watts")),
+        average_cadence=_safe_float(raw.get("average_cadence")),
+        calories=_safe_float(raw.get("calories")),
+        kilojoules=_safe_float(raw.get("kilojoules")),
+        gear_id=raw.get("gear_id"),
+        elev_high=_safe_float(raw.get("elev_high")),
+        elev_low=_safe_float(raw.get("elev_low")),
+        start_date_local=_safe_date(raw.get("start_date_local")),
+        device_watts=raw.get("device_watts"),
+        trainer=raw.get("trainer"),
+        workout_type=_safe_int(raw.get("workout_type")),
+        has_heartrate=raw.get("has_heartrate"),
+    )
+
+
+def backfill_from_raw_json():
+    """Re-extract all fields from stored raw_json for every activity."""
+    init_db()
+    session = get_session()
+    try:
+        activities = session.query(Activity).all()
+        count = 0
+        for act in activities:
+            if not act.raw_json:
+                continue
+            raw = json.loads(act.raw_json)
+            for key, value in _extract_from_raw(raw).items():
+                setattr(act, key, value)
+            count += 1
+        session.commit()
+        console.print(f"Backfilled {count} activities from raw_json.")
+    finally:
+        session.close()
+
+
+def sync_activities(include_streams: bool = False, stream_limit: int | None = None):
     """Fetch activities from Strava and store them locally."""
     init_db()
     client = get_authenticated_client()
@@ -104,23 +179,46 @@ def sync_activities(include_streams: bool = False):
         console.print(f"Synced {new_count} new, {updated_count} updated activities.")
 
         if include_streams:
-            _sync_streams(client, session)
+            _sync_streams(client, session, limit=stream_limit)
 
     finally:
         session.close()
 
 
-def _sync_streams(client, session):
-    """Fetch stream data for activities that don't have it yet."""
-    activities = session.query(Activity).filter(Activity.has_streams == False).all()
+def _sync_streams(client, session, limit: int | None = None):
+    """Fetch stream data for activities that don't have it yet. Newest first, rate-limit aware."""
+    activities = (
+        session.query(Activity)
+        .filter(Activity.has_streams == False)
+        .order_by(Activity.start_date.desc())
+        .all()
+    )
 
     if not activities:
         console.print("All activities already have stream data.")
         return
 
-    console.print(f"Fetching streams for {len(activities)} activities...")
+    if limit:
+        activities = activities[:limit]
+
+    total = len(activities)
+    console.print(f"Fetching streams for {total} activities (newest first)...")
+
+    request_count = 0
+    window_start = time_mod.time()
 
     for i, activity in enumerate(activities):
+        # Rate limit: 200 requests per 15 minutes
+        request_count += 1
+        if request_count >= 190:
+            elapsed = time_mod.time() - window_start
+            remaining = 900 - elapsed  # 15 min = 900 sec
+            if remaining > 0:
+                console.print(f"  [yellow]Rate limit approaching, pausing {remaining:.0f}s...[/yellow]")
+                time_mod.sleep(remaining + 5)
+            request_count = 0
+            window_start = time_mod.time()
+
         try:
             streams = client.get_activity_streams(
                 activity.id,
@@ -149,9 +247,16 @@ def _sync_streams(client, session):
             activity.has_streams = True
             session.commit()
 
-            console.print(f"  [{i + 1}/{len(activities)}] {activity.name} - streams fetched")
+            date_str = activity.start_date.strftime("%Y-%m-%d") if activity.start_date else "?"
+            console.print(f"  [{i + 1}/{total}] {date_str} {activity.name}")
 
         except Exception as e:
-            console.print(f"  [{i + 1}/{len(activities)}] {activity.name} - [red]error: {e}[/red]")
+            if "rate limit" in str(e).lower() or "429" in str(e):
+                console.print(f"  [yellow]Rate limited. Pausing 15 minutes...[/yellow]")
+                time_mod.sleep(910)
+                request_count = 0
+                window_start = time_mod.time()
+            else:
+                console.print(f"  [{i + 1}/{total}] {activity.name} - [red]error: {e}[/red]")
 
     console.print("Stream sync complete.")

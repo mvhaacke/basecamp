@@ -12,6 +12,8 @@ build/
 .venv/
 venv/
 
+.garth/
+
 .idea/
 .vscode/
 *.swp
