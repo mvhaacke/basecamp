@@ -5,7 +5,8 @@ from dateutil.parser import parse as parse_date
 
 from rich.console import Console
 
-from ..db import Activity, Stream, get_session, init_db
+from ..database import get_session
+from ..models import Activity, Stream
 from ..strava.auth import get_authenticated_client
 
 console = Console()
@@ -119,9 +120,7 @@ def _extract_from_raw(raw: dict) -> dict:
 
 def backfill_from_raw_json():
     """Re-extract all fields from stored raw_json for every activity."""
-    init_db()
-    session = get_session()
-    try:
+    with get_session() as session:
         activities = session.query(Activity).all()
         count = 0
         for act in activities:
@@ -133,17 +132,13 @@ def backfill_from_raw_json():
             count += 1
         session.commit()
         console.print(f"Backfilled {count} activities from raw_json.")
-    finally:
-        session.close()
 
 
 def sync_activities(include_streams: bool = False, stream_limit: int | None = None):
     """Fetch activities from Strava and store them locally."""
-    init_db()
     client = get_authenticated_client()
-    session = get_session()
 
-    try:
+    with get_session() as session:
         # Find the most recent activity we have to avoid re-fetching everything
         latest = session.query(Activity).order_by(Activity.start_date.desc()).first()
         after = latest.start_date if latest else None
@@ -180,9 +175,6 @@ def sync_activities(include_streams: bool = False, stream_limit: int | None = No
 
         if include_streams:
             _sync_streams(client, session, limit=stream_limit)
-
-    finally:
-        session.close()
 
 
 def _sync_streams(client, session, limit: int | None = None):

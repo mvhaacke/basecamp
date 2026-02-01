@@ -6,20 +6,17 @@ from urllib.parse import parse_qs, urlparse
 from stravalib import Client
 
 from basecamp.config import STRAVA_CLIENT_ID, STRAVA_CLIENT_SECRET, STRAVA_REDIRECT_URI
-from basecamp.db import Token, get_session, init_db
+from basecamp.database import get_session
+from basecamp.models import Token
 
 
 def _get_stored_token() -> Token | None:
-    session = get_session()
-    try:
+    with get_session() as session:
         return session.query(Token).order_by(Token.updated_at.desc()).first()
-    finally:
-        session.close()
 
 
 def _save_token(access_token: str, refresh_token: str, expires_at: int, athlete_id: int | None = None):
-    session = get_session()
-    try:
+    with get_session() as session:
         token = session.query(Token).first()
         if token:
             token.access_token = access_token
@@ -36,13 +33,10 @@ def _save_token(access_token: str, refresh_token: str, expires_at: int, athlete_
             )
             session.add(token)
         session.commit()
-    finally:
-        session.close()
 
 
 def get_authenticated_client() -> Client:
     """Return a stravalib Client with a valid access token, refreshing if needed."""
-    init_db()
     token = _get_stored_token()
     if not token:
         raise RuntimeError("Not authenticated. Run 'basecamp auth' first.")
@@ -71,8 +65,6 @@ def get_authenticated_client() -> Client:
 
 def authenticate():
     """Run the full OAuth2 flow: open browser, catch callback, store tokens."""
-    init_db()
-
     if not STRAVA_CLIENT_ID or not STRAVA_CLIENT_SECRET:
         raise RuntimeError(
             "STRAVA_CLIENT_ID and STRAVA_CLIENT_SECRET must be set in .env\n"

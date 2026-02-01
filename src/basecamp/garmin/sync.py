@@ -4,7 +4,8 @@ from datetime import date, datetime, timedelta, timezone
 
 from rich.console import Console
 
-from ..db import GarminDailySummary, get_session, init_db
+from ..database import get_session
+from ..models import GarminDailySummary
 from ..garmin.auth import get_client
 
 console = Console()
@@ -163,12 +164,10 @@ def _get_display_name(client) -> str:
 
 def sync_wellness(days: int = 30, start: date | None = None, end: date | None = None) -> None:
     """Fetch daily wellness data from Garmin and upsert to DB."""
-    init_db()
     client = get_client()
     display_name = _get_display_name(client)
-    session = get_session()
 
-    try:
+    with get_session() as session:
         today = date.today()
         yesterday = today - timedelta(days=1)
 
@@ -220,6 +219,13 @@ def sync_wellness(days: int = 30, start: date | None = None, end: date | None = 
             fields.update(_extract_training_readiness(tr_data))
             fields.update(_extract_user_summary(summary_data))
 
+            # Skip days where all extracted values are None (no watch data)
+            data_fields = {k: v for k, v in fields.items() if k != "synced_at"}
+            if all(v is None for v in data_fields.values()):
+                console.print(f"    [dim]no data, skipping[/dim]")
+                current += timedelta(days=1)
+                continue
+
             fields["raw_sleep"] = json.dumps(sleep_data, default=str) if sleep_data else None
             fields["raw_hrv"] = json.dumps(hrv_data, default=str) if hrv_data else None
             fields["raw_body_battery"] = json.dumps(bb_data, default=str) if bb_data else None
@@ -245,15 +251,11 @@ def sync_wellness(days: int = 30, start: date | None = None, end: date | None = 
 
         session.commit()
         console.print(f"Synced {count} days of wellness data.")
-    finally:
-        session.close()
 
 
 def backfill_wellness() -> None:
     """Re-extract all fields from stored raw JSON for every GarminDailySummary row."""
-    init_db()
-    session = get_session()
-    try:
+    with get_session() as session:
         rows = session.query(GarminDailySummary).all()
         count = 0
         for row in rows:
@@ -277,5 +279,3 @@ def backfill_wellness() -> None:
             count += 1
         session.commit()
         console.print(f"Backfilled {count} wellness rows from raw JSON.")
-    finally:
-        session.close()

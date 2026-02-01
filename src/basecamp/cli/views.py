@@ -4,71 +4,28 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from basecamp.db import Activity, GarminDailySummary, get_session, init_db
-from basecamp.strava.auth import authenticate
-from basecamp.strava.sync import backfill_from_raw_json, sync_activities
+from basecamp.cli import app
+from basecamp.cli.formatting import format_duration, sport_group
+from basecamp.database import get_session
+from basecamp.models import Activity, GarminDailySummary
 
-app = typer.Typer(help="Basecamp — personal triathlon training analysis")
-garmin_app = typer.Typer(help="Garmin Connect integration")
-app.add_typer(garmin_app, name="garmin")
 console = Console()
-
-
-@app.command()
-def auth():
-    """Authenticate with Strava via OAuth2."""
-    try:
-        token_response = authenticate()
-        console.print("[green]Successfully authenticated with Strava![/green]")
-        athlete = token_response.get("athlete")
-        if athlete and isinstance(athlete, dict):
-            name = f"{athlete.get('firstname', '')} {athlete.get('lastname', '')}".strip()
-            if name:
-                console.print(f"Athlete: {name}")
-    except Exception as e:
-        console.print(f"[red]Authentication failed: {e}[/red]")
-        raise typer.Exit(1)
-
-
-@app.command()
-def sync(
-    streams: bool = typer.Option(False, "--streams", help="Also fetch time-series stream data"),
-    stream_limit: int = typer.Option(None, "--stream-limit", help="Max number of activities to fetch streams for"),
-):
-    """Sync activities from Strava to local database."""
-    try:
-        sync_activities(include_streams=streams, stream_limit=stream_limit)
-    except RuntimeError as e:
-        console.print(f"[red]{e}[/red]")
-        raise typer.Exit(1)
-
-
-@app.command()
-def backfill():
-    """Re-extract all fields from stored raw_json (useful after adding new columns)."""
-    try:
-        backfill_from_raw_json()
-    except Exception as e:
-        console.print(f"[red]Backfill failed: {e}[/red]")
-        raise typer.Exit(1)
 
 
 @app.command()
 def activities(
     limit: int = typer.Option(20, "--limit", "-l", help="Number of activities to show"),
     sport: str = typer.Option(None, "--sport", "-s", help="Filter by sport type (e.g. Run, Ride, Swim)"),
-):
+) -> None:
     """List synced activities."""
-    init_db()
-    session = get_session()
-    try:
+    with get_session() as session:
         query = session.query(Activity).order_by(Activity.start_date.desc())
         if sport:
             query = query.filter(Activity.sport_type.ilike(f"%{sport}%"))
         rows = query.limit(limit).all()
 
         if not rows:
-            console.print("No activities found. Run 'basecamp sync' first.")
+            console.print("No activities found. Run 'basecamp strava sync' first.")
             return
 
         table = Table(title=f"Activities (showing {len(rows)})")
@@ -85,27 +42,23 @@ def activities(
             dist = f"{a.distance / 1000:.1f} km" if a.distance else "-"
             duration = str(timedelta(seconds=a.moving_time)) if a.moving_time else "-"
             hr = f"{a.average_heartrate:.0f}" if a.average_heartrate else "-"
-            date = a.start_date.strftime("%Y-%m-%d") if a.start_date else "-"
+            dt = a.start_date.strftime("%Y-%m-%d") if a.start_date else "-"
             has_streams = "[green]✓[/green]" if a.has_streams else ""
 
-            table.add_row(str(a.id), date, a.sport_type or "-", a.name or "-", dist, duration, hr, has_streams)
+            table.add_row(str(a.id), dt, a.sport_type or "-", a.name or "-", dist, duration, hr, has_streams)
 
         console.print(table)
-    finally:
-        session.close()
 
 
 @app.command()
 def activity(
     activity_id: int = typer.Argument(help="Strava activity ID"),
-):
+) -> None:
     """Show details for a single activity."""
-    init_db()
-    session = get_session()
-    try:
+    with get_session() as session:
         act = session.get(Activity, activity_id)
         if not act:
-            console.print(f"[red]Activity {activity_id} not found. Run 'basecamp sync' first.[/red]")
+            console.print(f"[red]Activity {activity_id} not found. Run 'basecamp strava sync' first.[/red]")
             raise typer.Exit(1)
 
         dist = f"{act.distance / 1000:.2f} km" if act.distance else "-"
@@ -143,32 +96,14 @@ def activity(
         table.add_row("Streams", "[green]✓[/green]" if act.has_streams else "[dim]not synced[/dim]")
 
         console.print(table)
-    finally:
-        session.close()
-
-
-SPORT_GROUPS = {
-    "Ride": ["Ride", "VirtualRide"],
-    "Run": ["Run", "TrailRun"],
-    "Swim": ["Swim"],
-}
-
-
-def _sport_group(sport_type: str) -> str:
-    for group, types in SPORT_GROUPS.items():
-        if sport_type in types:
-            return group
-    return "Other"
 
 
 @app.command()
 def weekly(
     weeks: int = typer.Option(8, "--weeks", "-w", help="Number of weeks to show"),
-):
+) -> None:
     """Show weekly training summary: hours per sport and kilojoules."""
-    init_db()
-    session = get_session()
-    try:
+    with get_session() as session:
         all_activities = (
             session.query(Activity)
             .filter(Activity.start_date.isnot(None))
@@ -177,10 +112,9 @@ def weekly(
         )
 
         if not all_activities:
-            console.print("No activities found. Run 'basecamp sync' first.")
+            console.print("No activities found. Run 'basecamp strava sync' first.")
             return
 
-        # Group by ISO week
         weekly_data: dict[str, dict] = {}
         for a in all_activities:
             iso = a.start_date.isocalendar()
@@ -196,7 +130,7 @@ def weekly(
                     "count": 0,
                 }
 
-            group = _sport_group(a.sport_type or "")
+            group = sport_group(a.sport_type or "")
             seconds = a.moving_time or 0
             weekly_data[week_key][group] += seconds
             weekly_data[week_key]["total_seconds"] += seconds
@@ -206,7 +140,6 @@ def weekly(
             if kj:
                 weekly_data[week_key]["kj"] += kj
 
-        # Sort by week descending, limit
         sorted_weeks = sorted(weekly_data.items(), reverse=True)[:weeks]
 
         table = Table(title=f"Weekly Summary (last {len(sorted_weeks)} weeks)")
@@ -220,7 +153,7 @@ def weekly(
         table.add_column("#", justify="right", style="dim")
 
         for week_key, d in sorted_weeks:
-            def fmt_hours(secs):
+            def fmt_hours(secs: int) -> str:
                 if secs == 0:
                     return "[dim]-[/dim]"
                 h, m = divmod(secs, 3600)
@@ -241,71 +174,15 @@ def weekly(
             )
 
         console.print(table)
-    finally:
-        session.close()
-
-
-@garmin_app.command("auth")
-def garmin_auth():
-    """Authenticate with Garmin Connect."""
-    from basecamp.garmin.auth import login
-
-    try:
-        login()
-        console.print("[green]Successfully authenticated with Garmin Connect![/green]")
-    except Exception as e:
-        console.print(f"[red]Garmin authentication failed: {e}[/red]")
-        raise typer.Exit(1)
-
-
-@garmin_app.command("sync")
-def garmin_sync(
-    days: int = typer.Option(30, "--days", "-d", help="Number of days to sync"),
-    start: str = typer.Option(None, "--start", help="Start date (YYYY-MM-DD), overrides --days"),
-    end: str = typer.Option(None, "--end", help="End date (YYYY-MM-DD), defaults to yesterday"),
-):
-    """Sync wellness data from Garmin Connect."""
-    from basecamp.garmin.sync import sync_wellness
-
-    start_date = datetime.strptime(start, "%Y-%m-%d").date() if start else None
-    end_date = datetime.strptime(end, "%Y-%m-%d").date() if end else None
-
-    try:
-        sync_wellness(days=days, start=start_date, end=end_date)
-    except Exception as e:
-        console.print(f"[red]Garmin sync failed: {e}[/red]")
-        raise typer.Exit(1)
-
-
-@garmin_app.command("backfill")
-def garmin_backfill():
-    """Re-extract all fields from stored raw JSON (useful after fixing extraction logic)."""
-    from basecamp.garmin.sync import backfill_wellness
-
-    try:
-        backfill_wellness()
-    except Exception as e:
-        console.print(f"[red]Garmin backfill failed: {e}[/red]")
-        raise typer.Exit(1)
-
-
-def _format_duration(seconds: int | None) -> str:
-    if seconds is None:
-        return "-"
-    hours, remainder = divmod(seconds, 3600)
-    minutes = remainder // 60
-    return f"{hours}h {minutes:02d}m" if hours else f"{minutes}m"
 
 
 @app.command()
 def wellness(
     days: int = typer.Option(7, "--days", "-d", help="Number of days to show"),
     date_str: str = typer.Option(None, "--date", help="Show a specific date (YYYY-MM-DD)"),
-):
+) -> None:
     """Show Garmin wellness/recovery data."""
-    init_db()
-    session = get_session()
-    try:
+    with get_session() as session:
         query = session.query(GarminDailySummary).order_by(GarminDailySummary.date.desc())
 
         if date_str:
@@ -320,11 +197,11 @@ def wellness(
             detail.add_column("Value")
 
             detail.add_row("Sleep Score", str(row.sleep_score) if row.sleep_score else "-")
-            detail.add_row("Sleep Duration", _format_duration(row.sleep_duration))
-            detail.add_row("Deep Sleep", _format_duration(row.sleep_deep))
-            detail.add_row("Light Sleep", _format_duration(row.sleep_light))
-            detail.add_row("REM Sleep", _format_duration(row.sleep_rem))
-            detail.add_row("Awake", _format_duration(row.sleep_awake))
+            detail.add_row("Sleep Duration", format_duration(row.sleep_duration))
+            detail.add_row("Deep Sleep", format_duration(row.sleep_deep))
+            detail.add_row("Light Sleep", format_duration(row.sleep_light))
+            detail.add_row("REM Sleep", format_duration(row.sleep_rem))
+            detail.add_row("Awake", format_duration(row.sleep_awake))
             detail.add_row("HRV (last night)", f"{row.hrv_last_night:.0f} ms" if row.hrv_last_night else "-")
             detail.add_row("HRV (weekly avg)", f"{row.hrv_weekly_avg:.0f} ms" if row.hrv_weekly_avg else "-")
             detail.add_row("HRV Status", row.hrv_status or "-")
@@ -358,7 +235,7 @@ def wellness(
             table.add_row(
                 r.date.isoformat() if r.date else "-",
                 str(r.sleep_score) if r.sleep_score else "-",
-                _format_duration(r.sleep_duration),
+                format_duration(r.sleep_duration),
                 f"{r.hrv_last_night:.0f}" if r.hrv_last_night else "-",
                 str(r.body_battery_high) if r.body_battery_high is not None else "-",
                 str(r.stress_avg) if r.stress_avg is not None else "-",
@@ -367,5 +244,3 @@ def wellness(
             )
 
         console.print(table)
-    finally:
-        session.close()

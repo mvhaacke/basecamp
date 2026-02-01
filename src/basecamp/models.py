@@ -10,11 +10,8 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
-    create_engine,
 )
-from sqlalchemy.orm import DeclarativeBase, Session, relationship, sessionmaker
-
-from basecamp.config import DATABASE_URL
+from sqlalchemy.orm import DeclarativeBase, relationship
 
 
 class Base(DeclarativeBase):
@@ -139,15 +136,3 @@ class GarminDailySummary(Base):
     raw_spo2 = Column(Text)
 
     synced_at = Column(DateTime)
-
-
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(bind=engine)
-
-
-def init_db():
-    Base.metadata.create_all(engine)
-
-
-def get_session() -> Session:
-    return SessionLocal()
