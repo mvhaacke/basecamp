@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Learning-First Approach
+
+**Important:** The user is building this project to learn. Don't just write code — explain concepts, trade-offs, and the "why" behind decisions. After implementing something new, point out interesting code sections and suggest the user read through them to understand how they work. Encourage questions. When introducing a new pattern or library feature, briefly explain what it does and why we're using it.
+
 ## Project
 
 Basecamp is a personal triathlon training analysis tool that syncs activity data from Strava into a local SQLite database for custom analysis. Python 3.11+, installed as an editable package.
@@ -28,14 +32,20 @@ No tests or linting configured yet.
 ## Architecture
 
 ```
-cli.py                  Typer CLI — entry point for all commands
+cli/                    Typer CLI — entry point for all commands
 config.py               Loads .env (Strava credentials), defines DATABASE_URL
-db.py                   SQLAlchemy models: Token, Activity, Stream + session factory
+models.py               SQLAlchemy models: Token, Activity, Stream, AthleteSettings
+database.py             Session factory and init_db()
 strava/auth.py          OAuth2 flow (local HTTP callback on :8000), token persistence & auto-refresh
 strava/sync.py          Incremental activity fetch, upserts into DB, optional stream sync
 analytics/tss.py        TSS computation (power, HR, duration fallback)
 analytics/pmc.py        PMC computation (CTL/ATL/TSB via pandas EWMA)
-dashboard/app.py        Streamlit dashboard — PMC chart with athlete settings sidebar
+analytics/wellness.py   HRV data loading with baseline zones
+dashboard/
+    app.py              Streamlit entry point with navigation
+    pages/dashboard.py  PMC + HRV charts
+    pages/activities.py Activity list with filters
+    pages/settings.py   Athlete thresholds + sync buttons
 ```
 
 **Data flow:** CLI → auth/sync modules → Strava API (via stravalib) → SQLAlchemy → SQLite (basecamp.db at project root)

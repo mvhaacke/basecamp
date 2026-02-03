@@ -24,14 +24,28 @@ def load_athlete_thresholds() -> AthleteThresholds:
         )
 
 
-def compute_pmc(ctl_days: int = 42, atl_days: int = 7) -> pd.DataFrame:
+def get_sport_types() -> list[str]:
+    """Get all distinct sport types from the database."""
+    with get_session() as session:
+        result = session.execute(
+            select(Activity.sport_type).distinct().where(Activity.sport_type.isnot(None))
+        ).scalars().all()
+    return sorted(result)
+
+
+def compute_pmc(
+    ctl_days: int = 42,
+    atl_days: int = 7,
+    sport_types: list[str] | None = None,
+) -> pd.DataFrame:
     """Build a daily PMC dataframe with columns: date, tss, ctl, atl, tsb."""
     thresholds = load_athlete_thresholds()
 
     with get_session() as session:
-        activities = session.execute(
-            select(Activity).order_by(Activity.start_date)
-        ).scalars().all()
+        query = select(Activity).order_by(Activity.start_date)
+        if sport_types:
+            query = query.where(Activity.sport_type.in_(sport_types))
+        activities = session.execute(query).scalars().all()
 
     if not activities:
         return pd.DataFrame(columns=["date", "tss", "ctl", "atl", "tsb"])
