@@ -17,3 +17,14 @@ app.add_typer(strava_app, name="strava")
 app.add_typer(garmin_app, name="garmin")
 
 from basecamp.cli import views  # noqa: F401
+
+
+@app.command()
+def dashboard() -> None:
+    """Launch the Streamlit training dashboard."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    app_path = Path(__file__).parent.parent / "dashboard" / "app.py"
+    subprocess.run([sys.executable, "-m", "streamlit", "run", str(app_path)])

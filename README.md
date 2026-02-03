@@ -90,6 +90,15 @@ basecamp wellness --days 14
 basecamp wellness --date 2025-06-15
 ```
 
+### Dashboard
+
+```bash
+# Launch the Streamlit training dashboard (PMC chart)
+basecamp dashboard
+```
+
+The dashboard shows a Performance Management Chart (PMC) with Chronic Training Load (CTL), Acute Training Load (ATL), and Training Stress Balance (TSB). Configure your athlete thresholds (FTP, max HR, LTHR, etc.) in the sidebar to enable power- and HR-based TSS computation.
+
 ## Data Storage
 
 All data is stored in `basecamp.db` (SQLite) at the project root. Each synced activity and wellness day retains the full raw API response, so fields can be re-extracted with the `backfill` commands after schema changes.

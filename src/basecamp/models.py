@@ -136,3 +136,17 @@ class GarminDailySummary(Base):
     raw_spo2 = Column(Text)
 
     synced_at = Column(DateTime)
+
+
+class AthleteSettings(Base):
+    __tablename__ = "athlete_settings"
+
+    id = Column(Integer, primary_key=True, default=1)
+    ftp = Column(Float)
+    run_ftp = Column(Float)
+    max_hr = Column(Integer)
+    resting_hr = Column(Integer)
+    lthr = Column(Integer)
+    swim_css = Column(Float)
+    weight_kg = Column(Float)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

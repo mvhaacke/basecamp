@@ -20,6 +20,7 @@ basecamp sync              # Sync activities from Strava
 basecamp sync --streams    # Also fetch time-series stream data
 basecamp activities        # List activities (--limit N, --sport TYPE)
 basecamp activity <id>     # Show single activity detail
+basecamp dashboard         # Launch Streamlit training dashboard
 ```
 
 No tests or linting configured yet.
@@ -32,6 +33,9 @@ config.py               Loads .env (Strava credentials), defines DATABASE_URL
 db.py                   SQLAlchemy models: Token, Activity, Stream + session factory
 strava/auth.py          OAuth2 flow (local HTTP callback on :8000), token persistence & auto-refresh
 strava/sync.py          Incremental activity fetch, upserts into DB, optional stream sync
+analytics/tss.py        TSS computation (power, HR, duration fallback)
+analytics/pmc.py        PMC computation (CTL/ATL/TSB via pandas EWMA)
+dashboard/app.py        Streamlit dashboard — PMC chart with athlete settings sidebar
 ```
 
 **Data flow:** CLI → auth/sync modules → Strava API (via stravalib) → SQLAlchemy → SQLite (basecamp.db at project root)

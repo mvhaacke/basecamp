@@ -14,6 +14,9 @@ dependencies = [
     "rich>=13.0",
     "python-dotenv>=1.0",
     "garth>=0.6",
+    "streamlit>=1.30",
+    "plotly>=5.18",
+    "pandas>=2.0",
 ]
 
 [project.scripts]
