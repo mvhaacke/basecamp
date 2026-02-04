@@ -7,7 +7,8 @@ from math import exp
 @dataclass
 class AthleteThresholds:
     ftp: float | None = None
-    run_ftp: float | None = None
+    run_threshold_pace: float | None = None  # seconds per km
+    swim_css: float | None = None  # seconds per 100m
     max_hr: int | None = None
     resting_hr: int | None = None
     lthr: int | None = None
@@ -72,13 +73,20 @@ def compute_activity_tss(
     average_heartrate: float | None,
     thresholds: AthleteThresholds,
 ) -> tuple[float | None, str]:
-    """Returns (tss_value, method_used) for an activity."""
-    ftp = thresholds.run_ftp if sport_type in ("Run", "TrailRun") else thresholds.ftp
-    np = weighted_average_watts or average_watts
+    """Returns (tss_value, method_used) for an activity.
 
-    if ftp and np and np > 0:
-        return power_tss(duration_s, np, ftp), "power"
+    Priority:
+    1. Power-based TSS for cycling (requires FTP and power data)
+    2. HR-based TSS for all sports (requires HR thresholds)
+    3. Duration-based fallback
+    """
+    # Power-based TSS only for cycling (running power from Strava is unreliable)
+    if sport_type in ("Ride", "VirtualRide") and thresholds.ftp:
+        np = weighted_average_watts or average_watts
+        if np and np > 0:
+            return power_tss(duration_s, np, thresholds.ftp), "power"
 
+    # HR-based TSS for all sports
     if (
         average_heartrate
         and thresholds.max_hr
@@ -95,5 +103,6 @@ def compute_activity_tss(
         if value > 0:
             return value, "hr"
 
+    # Duration-based fallback
     rate = DURATION_TSS_PER_HOUR.get(sport_type, DEFAULT_TSS_PER_HOUR)
     return duration_tss(duration_s, rate), "duration"

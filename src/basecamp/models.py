@@ -61,6 +61,7 @@ class Activity(Base):
     workout_type = Column(Integer)
     has_heartrate = Column(Boolean)
     estimated_kilojoules = Column(Float)
+    computed_calories = Column(Float)
     has_streams = Column(Boolean, default=False)
     raw_json = Column(Text)
     synced_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
@@ -143,10 +144,10 @@ class AthleteSettings(Base):
 
     id = Column(Integer, primary_key=True, default=1)
     ftp = Column(Float)
-    run_ftp = Column(Float)
+    run_threshold_pace = Column(Float)  # seconds per km
+    swim_css = Column(Float)  # seconds per 100m
     max_hr = Column(Integer)
     resting_hr = Column(Integer)
     lthr = Column(Integer)
-    swim_css = Column(Float)
     weight_kg = Column(Float)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

@@ -252,6 +252,9 @@ def sync_wellness(days: int = 30, start: date | None = None, end: date | None = 
         session.commit()
         console.print(f"Synced {count} days of wellness data.")
 
+    # Re-extract to ensure consistency
+    backfill_wellness()
+
 
 def backfill_wellness() -> None:
     """Re-extract all fields from stored raw JSON for every GarminDailySummary row."""

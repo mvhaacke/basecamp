@@ -52,7 +52,7 @@ else:
             "Duration": duration_str,
             "Distance (km)": f"{distance_km:.1f}" if distance_km else "",
             "Avg HR": int(act.average_heartrate) if act.average_heartrate else None,
-            "Avg Power": int(act.average_watts) if act.average_watts else None,
+            "kcal": int(act.computed_calories) if act.computed_calories else None,
         })
 
     st.dataframe(rows, width="stretch", hide_index=True)

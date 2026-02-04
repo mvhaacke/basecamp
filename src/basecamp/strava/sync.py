@@ -6,7 +6,7 @@ from dateutil.parser import parse as parse_date
 from rich.console import Console
 
 from ..database import get_session
-from ..models import Activity, Stream
+from ..models import Activity, AthleteSettings, Stream
 from ..strava.auth import get_authenticated_client
 
 console = Console()
@@ -34,43 +34,6 @@ def _safe_int(val) -> int | None:
     """Safely convert stravalib quantity or raw value to int (seconds)."""
     f = _safe_float(val)
     return int(f) if f is not None else None
-
-
-def _activity_to_dict(act) -> dict:
-    """Extract fields from a stravalib Activity object into a dict for our DB model.
-    Uses getattr throughout since get_activities() returns SummaryActivity objects
-    which lack some fields that only DetailedActivity has (e.g. calories, description).
-    """
-    return dict(
-        id=act.id,
-        sport_type=str(getattr(act, "sport_type", None) or getattr(act, "type", "")),
-        name=getattr(act, "name", None),
-        description=getattr(act, "description", None),
-        start_date=getattr(act, "start_date", None),
-        timezone=str(act.timezone) if getattr(act, "timezone", None) else None,
-        distance=_safe_float(getattr(act, "distance", None)),
-        moving_time=_safe_int(getattr(act, "moving_time", None)),
-        elapsed_time=_safe_int(getattr(act, "elapsed_time", None)),
-        total_elevation_gain=_safe_float(getattr(act, "total_elevation_gain", None)),
-        average_speed=_safe_float(getattr(act, "average_speed", None)),
-        max_speed=_safe_float(getattr(act, "max_speed", None)),
-        average_heartrate=_safe_float(getattr(act, "average_heartrate", None)),
-        max_heartrate=_safe_float(getattr(act, "max_heartrate", None)),
-        average_watts=_safe_float(getattr(act, "average_watts", None)),
-        max_watts=_safe_float(getattr(act, "max_watts", None)),
-        weighted_average_watts=_safe_float(getattr(act, "weighted_average_watts", None)),
-        average_cadence=_safe_float(getattr(act, "average_cadence", None)),
-        calories=_safe_float(getattr(act, "calories", None)),
-        kilojoules=_safe_float(getattr(act, "kilojoules", None)),
-        gear_id=getattr(act, "gear_id", None),
-        elev_high=_safe_float(getattr(act, "elev_high", None)),
-        elev_low=_safe_float(getattr(act, "elev_low", None)),
-        start_date_local=getattr(act, "start_date_local", None),
-        device_watts=getattr(act, "device_watts", None),
-        trainer=getattr(act, "trainer", None),
-        workout_type=_safe_int(getattr(act, "workout_type", None)),
-        has_heartrate=getattr(act, "has_heartrate", None),
-    )
 
 
 def _safe_date(val) -> datetime | None:
@@ -118,9 +81,42 @@ def _extract_from_raw(raw: dict) -> dict:
     )
 
 
+# Metabolic cost in kcal per kg per km
+KCAL_PER_KG_PER_KM = {
+    "Run": 1.0,
+    "TrailRun": 1.1,
+    "Swim": 3.2,
+    "Hike": 1.0,
+    "Walk": 0.8,
+}
+
+
+def compute_calories(
+    sport_type: str | None,
+    distance_m: float | None,
+    strava_kj: float | None,
+    weight_kg: float | None,
+) -> float | None:
+    """Compute kcal for an activity. Uses Strava kJ≈kcal for cycling, distance-based estimate for other sports."""
+    if sport_type in ("Ride", "VirtualRide"):
+        return strava_kj  # kJ from power meter ≈ kcal
+
+    if sport_type in KCAL_PER_KG_PER_KM and distance_m and weight_kg:
+        distance_km = distance_m / 1000
+        return distance_km * weight_kg * KCAL_PER_KG_PER_KM[sport_type]
+
+    return strava_kj
+
+
 def backfill_from_raw_json():
-    """Re-extract all fields from stored raw_json for every activity."""
+    """Re-extract all fields from stored raw_json and compute calories."""
     with get_session() as session:
+        settings = session.get(AthleteSettings, 1)
+        weight_kg = settings.weight_kg if settings else None
+
+        if not weight_kg:
+            console.print("[yellow]Warning: No weight set in athlete settings. Run/swim kcal will use Strava estimates.[/yellow]")
+
         activities = session.query(Activity).all()
         count = 0
         for act in activities:
@@ -129,13 +125,20 @@ def backfill_from_raw_json():
             raw = json.loads(act.raw_json)
             for key, value in _extract_from_raw(raw).items():
                 setattr(act, key, value)
+
+            act.computed_calories = compute_calories(
+                sport_type=act.sport_type,
+                distance_m=act.distance,
+                strava_kj=act.kilojoules,
+                weight_kg=weight_kg,
+            )
             count += 1
         session.commit()
         console.print(f"Backfilled {count} activities from raw_json.")
 
 
 def sync_activities(include_streams: bool = False, stream_limit: int | None = None):
-    """Fetch activities from Strava and store them locally."""
+    """Fetch raw activity data from Strava API and store it. Then run backfill to extract fields."""
     client = get_authenticated_client()
 
     with get_session() as session:
@@ -153,21 +156,23 @@ def sync_activities(include_streams: bool = False, stream_limit: int | None = No
         updated_count = 0
 
         for act in activities:
-            data = _activity_to_dict(act)
+            # Only store the raw JSON and minimal identifiers
             try:
                 raw = act.model_dump() if hasattr(act, "model_dump") else act.dict() if hasattr(act, "dict") else {"id": act.id}
             except Exception:
                 raw = {"id": act.id}
-            data["raw_json"] = json.dumps(raw, default=str)
-            data["synced_at"] = datetime.now(timezone.utc)
 
             existing = session.get(Activity, act.id)
             if existing:
-                for key, value in data.items():
-                    setattr(existing, key, value)
+                existing.raw_json = json.dumps(raw, default=str)
+                existing.synced_at = datetime.now(timezone.utc)
                 updated_count += 1
             else:
-                session.add(Activity(**data))
+                session.add(Activity(
+                    id=act.id,
+                    raw_json=json.dumps(raw, default=str),
+                    synced_at=datetime.now(timezone.utc),
+                ))
                 new_count += 1
 
         session.commit()
@@ -175,6 +180,9 @@ def sync_activities(include_streams: bool = False, stream_limit: int | None = No
 
         if include_streams:
             _sync_streams(client, session, limit=stream_limit)
+
+    # Extract fields from raw JSON
+    backfill_from_raw_json()
 
 
 def _sync_streams(client, session, limit: int | None = None):

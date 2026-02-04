@@ -17,7 +17,8 @@ def load_athlete_thresholds() -> AthleteThresholds:
             return AthleteThresholds()
         return AthleteThresholds(
             ftp=settings.ftp,
-            run_ftp=settings.run_ftp,
+            run_threshold_pace=settings.run_threshold_pace,
+            swim_css=settings.swim_css,
             max_hr=settings.max_hr,
             resting_hr=settings.resting_hr,
             lthr=settings.lthr,
