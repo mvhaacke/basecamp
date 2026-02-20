@@ -22,6 +22,15 @@ type CalendarDay = {
   sessions: number
   duration_hours: number
   tss: number
+  activities: CalendarActivity[]
+}
+
+type CalendarActivity = {
+  id: number
+  name: string | null
+  sport_type: string | null
+  start_time: string
+  duration_minutes: number
 }
 
 type CalendarPayload = {
@@ -49,14 +58,18 @@ type ActivityDetail = {
   distance_m: number | null
   average_heartrate: number | null
   average_watts: number | null
+  average_speed_m_per_s: number | null
   calories: number | null
   stream_time: number[]
   stream_heartrate: number[]
   stream_watts: number[]
+  stream_velocity_smooth: number[]
   wellness: Record<string, number | null>
 }
 
 const API_BASE = 'http://127.0.0.1:8000'
+const BIKE_SPORTS = new Set(['Ride', 'VirtualRide', 'MountainBikeRide', 'GravelRide', 'EBikeRide'])
+const RUN_SPORTS = new Set(['Run', 'TrailRun', 'VirtualRun', 'TreadmillRun'])
 
 export function App() {
   const [tab, setTab] = useState<TabKey>('status')
@@ -137,7 +150,7 @@ function StatusView() {
       </article>
 
       <div className="grid">
-        <Card label="Weekly Time" value={formatMinutes(weeklyMinutes)} tooltip="Total moving time over the last 7 days." />
+        <Card label="Weekly Time" value={formatDurationMinutes(weeklyMinutes)} tooltip="Total moving time over the last 7 days." />
         <Card label="Weekly Sessions" value={status.weekly_sessions.toString()} />
         <Card label="Weekly TSS" value={Math.round(status.weekly_tss).toString()} />
         <Card label="Body Battery" value={numberOrDash(status.body_battery_high)} />
@@ -194,6 +207,7 @@ function CalendarView() {
 
   const selectedDay = days.find((day) => day.date === selectedDate) ?? null
   const monthLabel = anchorMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+  const monthInput = monthInputValue(anchorMonth)
 
   return (
     <section className="calendar-layout">
@@ -203,6 +217,15 @@ function CalendarView() {
           <button onClick={() => setAnchorMonth(addMonths(anchorMonth, -1))} title="Previous month">
             ←
           </button>
+          <input
+            type="month"
+            aria-label="Select month"
+            value={monthInput}
+            onChange={(event) => {
+              const next = parseMonthInput(event.target.value)
+              if (next) setAnchorMonth(next)
+            }}
+          />
           <button onClick={() => setAnchorMonth(firstDayOfMonth(new Date()))} title="Jump to current month">
             Today
           </button>
@@ -216,7 +239,7 @@ function CalendarView() {
 
       <div className="totals">
         <Card label="Sessions" value={totals.sessions.toString()} />
-        <Card label="Time" value={formatMinutes(minutesFromHours(totals.duration_hours))} />
+        <Card label="Time" value={formatDurationMinutes(minutesFromHours(totals.duration_hours))} />
         <Card label="TSS" value={Math.round(totals.tss).toString()} />
       </div>
 
@@ -237,17 +260,20 @@ function CalendarView() {
 
             const minutes = minutesFromHours(day.duration_hours)
             const isSelected = selectedDate === day.date
+            const future = isFutureDay(day.date)
+            const dayClass = dayLoadClass(day, future)
+            const tooltip = formatCalendarTooltip(day)
 
             return (
               <button
                 key={day.date}
-                className={`calendar-cell ${tssClass(day.tss)}${isSelected ? ' selected' : ''}`}
+                className={`calendar-cell ${dayClass}${isSelected ? ' selected' : ''}`}
                 onClick={() => setSelectedDate(day.date)}
-                title={`${day.date}: ${day.sessions} sessions, ${formatMinutes(minutes)}, ${Math.round(day.tss)} TSS`}
+                title={tooltip}
               >
                 <p className="calendar-date">{new Date(`${day.date}T00:00:00`).getDate()}</p>
-                <p className="calendar-meta">{day.sessions === 0 ? 'Rest' : `${day.sessions} sessions`}</p>
-                <p className="calendar-meta">{formatMinutes(minutes)}</p>
+                <p className="calendar-meta">{day.sessions === 0 ? (future ? 'Upcoming' : 'Rest') : `${day.sessions} sessions`}</p>
+                <p className="calendar-meta">{formatDurationMinutes(minutes)}</p>
                 <p className="calendar-meta">{Math.round(day.tss)} TSS</p>
               </button>
             )
@@ -260,9 +286,9 @@ function CalendarView() {
         {selectedDay ? (
           <div className="grid compact">
             <Card label="Sessions" value={selectedDay.sessions.toString()} />
-            <Card label="Time" value={formatMinutes(minutesFromHours(selectedDay.duration_hours))} />
+            <Card label="Time" value={formatDurationMinutes(minutesFromHours(selectedDay.duration_hours))} />
             <Card label="TSS" value={Math.round(selectedDay.tss).toString()} />
-            <Card label="Load" value={tssClass(selectedDay.tss)} />
+            <Card label="Load" value={dayLoadClass(selectedDay, isFutureDay(selectedDay.date))} />
           </div>
         ) : (
           <p className="state">Select a day to inspect details.</p>
@@ -315,10 +341,19 @@ function ActivityView() {
     if (!detail) return []
     return detail.stream_time.map((value, index) => ({
       time: value,
-      hr: detail.stream_heartrate[index],
-      watts: detail.stream_watts[index],
+      hr: toValidNumber(detail.stream_heartrate[index]),
+      watts: toValidNumber(detail.stream_watts[index]),
+      pace: velocityToPace(detail.stream_velocity_smooth[index]),
     }))
   }, [detail])
+
+  const sport = detail?.sport_type ?? ''
+  const showPower = BIKE_SPORTS.has(sport)
+  const showPace = RUN_SPORTS.has(sport)
+  const hasHrStream = chartData.some((point) => point.hr != null)
+  const hasPowerStream = showPower && chartData.some((point) => point.watts != null)
+  const hasPaceStream = showPace && chartData.some((point) => point.pace != null)
+  const paceSecondsPerKm = detail?.average_speed_m_per_s ? 1000 / detail.average_speed_m_per_s : null
 
   return (
     <section className="activity-layout">
@@ -342,16 +377,17 @@ function ActivityView() {
       {detail && (
         <>
           <div className="grid">
-            <Card label="Duration" value={formatMinutes(Math.round(detail.duration_s / 60))} />
+            <Card label="Duration" value={formatDurationMinutes(Math.round(detail.duration_s / 60))} />
             <Card label="Distance" value={detail.distance_m ? `${(detail.distance_m / 1000).toFixed(1)} km` : '-'} />
             <Card label="Avg HR" value={numberOrDash(detail.average_heartrate)} />
-            <Card label="Avg Power" value={numberOrDash(detail.average_watts)} />
+            {showPower && <Card label="Avg Power" value={numberOrDash(detail.average_watts, ' W')} />}
+            {showPace && <Card label="Avg Pace" value={paceSecondsPerKm ? formatPace(paceSecondsPerKm) : '-'} />}
             <Card label="Sleep Score" value={numberOrDash(detail.wellness.sleep_score)} />
             <Card label="Readiness" value={numberOrDash(detail.wellness.training_readiness_score)} />
           </div>
 
           <div className="chart-wrap panel">
-            {chartData.length > 0 ? (
+            {chartData.length > 0 && (hasHrStream || hasPowerStream || hasPaceStream) ? (
               <ResponsiveContainer width="100%" height={320}>
                 <LineChart data={chartData}>
                   <XAxis
@@ -359,17 +395,27 @@ function ActivityView() {
                     tickFormatter={(value) => `${Math.round(Number(value) / 60)}m`}
                     minTickGap={48}
                   />
-                  <YAxis />
+                  <YAxis yAxisId="hr" hide />
+                  <YAxis yAxisId="power" hide />
+                  <YAxis yAxisId="pace" hide reversed />
                   <Tooltip
                     formatter={(value, name) => {
                       if (name === 'hr') return [`${Math.round(Number(value))} bpm`, 'Heart Rate']
                       if (name === 'watts') return [`${Math.round(Number(value))} W`, 'Power']
+                      if (name === 'pace') return [formatPace(Number(value)), 'Pace']
                       return [String(value), String(name)]
                     }}
                     labelFormatter={(value) => `Minute ${Math.round(Number(value) / 60)}`}
                   />
-                  <Line type="monotone" dataKey="hr" stroke="var(--secondary)" strokeWidth={2.25} dot={false} />
-                  <Line type="monotone" dataKey="watts" stroke="var(--accent)" strokeWidth={2.25} dot={false} />
+                  {hasHrStream && (
+                    <Line type="monotone" dataKey="hr" name="Heart Rate" stroke="var(--hr)" strokeWidth={2.25} dot={false} yAxisId="hr" />
+                  )}
+                  {hasPowerStream && (
+                    <Line type="monotone" dataKey="watts" name="Power" stroke="var(--power)" strokeWidth={2.25} dot={false} yAxisId="power" />
+                  )}
+                  {hasPaceStream && (
+                    <Line type="monotone" dataKey="pace" name="Pace" stroke="var(--pace)" strokeWidth={2.25} dot={false} yAxisId="pace" />
+                  )}
                 </LineChart>
               </ResponsiveContainer>
             ) : (
@@ -395,12 +441,23 @@ function minutesFromHours(hours: number) {
   return Math.round(hours * 60)
 }
 
-function formatMinutes(minutes: number) {
-  return `${Math.round(minutes)} min`
+function formatDurationMinutes(minutes: number) {
+  const rounded = Math.max(0, Math.round(minutes))
+  const hours = Math.floor(rounded / 60)
+  const mins = rounded % 60
+  if (hours === 0) return `${mins}m`
+  return `${hours}h ${mins}m`
 }
 
-function numberOrDash(value: number | null | undefined) {
-  return value == null ? '-' : Math.round(value).toString()
+function formatPace(secondsPerKm: number) {
+  const total = Math.round(secondsPerKm)
+  const mins = Math.floor(total / 60)
+  const secs = total % 60
+  return `${mins}:${String(secs).padStart(2, '0')} /km`
+}
+
+function numberOrDash(value: number | null | undefined, suffix = '') {
+  return value == null ? '-' : `${Math.round(value)}${suffix}`
 }
 
 function readinessClass(readiness: number | null) {
@@ -410,11 +467,46 @@ function readinessClass(readiness: number | null) {
   return 'low'
 }
 
-function tssClass(tss: number) {
+function dayLoadClass(day: CalendarDay, future: boolean) {
+  if (future && day.sessions === 0 && day.tss <= 0) return 'future'
+  const tss = day.tss
   if (tss >= 110) return 'high'
   if (tss >= 60) return 'moderate'
   if (tss > 0) return 'low'
   return 'rest'
+}
+
+function isFutureDay(value: string) {
+  return value > fmtDate(new Date())
+}
+
+function toValidNumber(value: number | undefined) {
+  if (value == null || !Number.isFinite(value)) return null
+  return Number(value)
+}
+
+function velocityToPace(mPerS: number | undefined) {
+  if (mPerS == null || !Number.isFinite(mPerS) || mPerS <= 0) return null
+  return 1000 / mPerS
+}
+
+function formatCalendarTooltip(day: CalendarDay) {
+  const lines = [
+    humanDate(day.date),
+    `${day.sessions} sessions`,
+    `${formatDurationMinutes(minutesFromHours(day.duration_hours))}`,
+    `${Math.round(day.tss)} TSS`,
+  ]
+  if (day.activities.length > 0) {
+    for (const activity of day.activities.slice(0, 6)) {
+      const name = activity.name ? ` - ${activity.name}` : ''
+      lines.push(
+        `${activity.start_time} ${activity.sport_type ?? 'Activity'}${name} (${formatDurationMinutes(activity.duration_minutes)})`
+      )
+    }
+    if (day.activities.length > 6) lines.push(`+${day.activities.length - 6} more`)
+  }
+  return lines.join('\n')
 }
 
 function firstDayOfMonth(value: Date) {
@@ -427,6 +519,21 @@ function lastDayOfMonth(value: Date) {
 
 function addMonths(value: Date, amount: number) {
   return new Date(value.getFullYear(), value.getMonth() + amount, 1)
+}
+
+function monthInputValue(value: Date) {
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  return `${year}-${month}`
+}
+
+function parseMonthInput(value: string) {
+  const [year, month] = value.split('-')
+  if (!year || !month) return null
+  const yearNum = Number(year)
+  const monthNum = Number(month)
+  if (!Number.isInteger(yearNum) || !Number.isInteger(monthNum) || monthNum < 1 || monthNum > 12) return null
+  return new Date(yearNum, monthNum - 1, 1)
 }
 
 function fmtDate(value: Date) {

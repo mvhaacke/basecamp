@@ -103,25 +103,36 @@ def build_calendar_summary(start: date, end: date) -> dict:
             .order_by(_activity_datetime_expr())
         ).scalars().all()
 
-    by_day: dict[date, dict[str, float | int]] = {}
+    by_day: dict[date, dict[str, float | int | list[dict[str, str | int | None]]]] = {}
     for activity in activities:
-        activity_day = (activity.start_date_local or activity.start_date).date()
-        slot = by_day.setdefault(activity_day, {"sessions": 0, "duration_hours": 0.0, "tss": 0.0})
+        activity_dt = activity.start_date_local or activity.start_date
+        activity_day = activity_dt.date()
+        slot = by_day.setdefault(activity_day, {"sessions": 0, "duration_hours": 0.0, "tss": 0.0, "activities": []})
         slot["sessions"] += 1
         slot["duration_hours"] += float(activity.moving_time or 0) / 3600
         slot["tss"] += _activity_tss(activity, thresholds)
+        slot["activities"].append(
+            {
+                "id": activity.id,
+                "name": activity.name,
+                "sport_type": activity.sport_type,
+                "start_time": activity_dt.strftime("%H:%M"),
+                "duration_minutes": int(round(float(activity.moving_time or 0) / 60)),
+            }
+        )
 
     days = []
     totals = {"sessions": 0, "duration_hours": 0.0, "tss": 0.0}
     cursor = start
     while cursor <= end:
-        values = by_day.get(cursor, {"sessions": 0, "duration_hours": 0.0, "tss": 0.0})
+        values = by_day.get(cursor, {"sessions": 0, "duration_hours": 0.0, "tss": 0.0, "activities": []})
         days.append(
             {
                 "date": cursor,
                 "sessions": int(values["sessions"]),
                 "duration_hours": round(float(values["duration_hours"]), 2),
                 "tss": round(float(values["tss"]), 1),
+                "activities": list(values["activities"]),
             }
         )
         totals["sessions"] += int(values["sessions"])
@@ -179,9 +190,11 @@ def get_activity_detail(activity_id: int) -> dict | None:
         "average_heartrate": activity.average_heartrate,
         "average_watts": activity.average_watts,
         "calories": activity.computed_calories,
+        "average_speed_m_per_s": activity.average_speed,
         "stream_time": _parse_stream(stream.time if stream else None),
         "stream_heartrate": _parse_stream(stream.heartrate if stream else None),
         "stream_watts": _parse_stream(stream.watts if stream else None),
+        "stream_velocity_smooth": _parse_stream(stream.velocity_smooth if stream else None),
         "wellness": {
             "sleep_score": wellness.sleep_score if wellness else None,
             "hrv_last_night": wellness.hrv_last_night if wellness else None,

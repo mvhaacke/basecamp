@@ -3,6 +3,9 @@
   --primary-strong: #0a4252;
   --secondary: #7756cf;
   --accent: #e07a1f;
+  --hr: #d64545;
+  --power: #7e57c2;
+  --pace: #1f7ae0;
   --surface: #f4f8fb;
   --panel: #ffffff;
   --text: #1c2430;
@@ -236,6 +239,21 @@ body {
   color: #44576a;
 }
 
+.calendar-nav input[type="month"] {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: #44576a;
+  min-width: 140px;
+  padding: 0.42rem 0.55rem;
+  font-weight: 700;
+}
+
+.calendar-nav input[type="month"]:focus {
+  outline: 2px solid rgba(11, 90, 111, 0.25);
+  border-color: var(--primary);
+}
+
 .calendar-nav button:hover {
   border-color: #8ea8b8;
 }
@@ -301,19 +319,31 @@ button.calendar-cell:hover {
 }
 
 .calendar-cell.rest {
-  background: #fbfcfd;
+  background: linear-gradient(180deg, #fbfcfd 0%, #f4f7fa 100%);
+}
+
+.calendar-cell.future {
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      #f8fafc,
+      #f8fafc 6px,
+      #f1f5f9 6px,
+      #f1f5f9 12px
+    );
+  color: #607080;
 }
 
 .calendar-cell.low {
-  background: linear-gradient(180deg, #f6fbf7 0%, #eef8f0 100%);
+  background: linear-gradient(180deg, #f3f8ff 0%, #e7f2ff 100%);
 }
 
 .calendar-cell.moderate {
-  background: linear-gradient(180deg, #fffaf0 0%, #fff3da 100%);
+  background: linear-gradient(180deg, #f1f8f3 0%, #e6f3ea 100%);
 }
 
 .calendar-cell.high {
-  background: linear-gradient(180deg, #fff4f2 0%, #ffe5e0 100%);
+  background: linear-gradient(180deg, #fff4ef 0%, #ffe9df 100%);
 }
 
 .calendar-date {
@@ -382,6 +412,10 @@ select:focus {
 
   .calendar-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .calendar-nav {
+    flex-wrap: wrap;
   }
 
   .calendar-head {

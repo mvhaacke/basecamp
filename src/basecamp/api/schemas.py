@@ -1,6 +1,6 @@
 from datetime import date
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class StatusSummary(BaseModel):
@@ -22,6 +22,7 @@ class CalendarDay(BaseModel):
     sessions: int
     duration_hours: float
     tss: float
+    activities: list[dict[str, str | int | None]] = Field(default_factory=list)
 
 
 class CalendarTotals(BaseModel):
@@ -47,7 +48,9 @@ class ActivityDetail(BaseModel):
     average_heartrate: float | None
     average_watts: float | None
     calories: float | None
+    average_speed_m_per_s: float | None
     stream_time: list[float]
     stream_heartrate: list[float]
     stream_watts: list[float]
+    stream_velocity_smooth: list[float]
     wellness: dict[str, float | int | str | None]
