@@ -61,6 +61,8 @@ def compute_pmc(
             average_watts=act.average_watts,
             average_heartrate=act.average_heartrate,
             thresholds=thresholds,
+            average_speed_m_per_s=act.average_speed,
+            distance_m=act.distance,
         )
         if tss_value:
             daily_tss[activity_date] = daily_tss.get(activity_date, 0.0) + tss_value

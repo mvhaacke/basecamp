@@ -90,20 +90,66 @@ KCAL_PER_KG_PER_KM = {
     "Walk": 0.8,
 }
 
+# MET values for duration-based calorie estimation of non-distance sports
+MET_BY_SPORT: dict[str, float] = {
+    "WeightTraining": 4.0,
+    "Rowing": 7.0,
+    "Yoga": 2.5,
+    "Elliptical": 5.0,
+    "StairStepper": 6.0,
+    "Crossfit": 8.0,
+    "IceSkate": 7.0,
+    "Kayaking": 5.0,
+}
+
 
 def compute_calories(
     sport_type: str | None,
     distance_m: float | None,
     strava_kj: float | None,
     weight_kg: float | None,
+    duration_s: float | None = None,
+    avg_hr: float | None = None,
+    max_hr: int | None = None,
+    resting_hr: int | None = None,
+    age: int | None = None,
+    sex: str | None = None,
 ) -> float | None:
-    """Compute kcal for an activity. Uses Strava kJ≈kcal for cycling, distance-based estimate for other sports."""
+    """Compute kcal for an activity.
+
+    Priority:
+    1. HR-based (Keytel formula) — most accurate when HR data and athlete profile are available
+    2. Power-based — cycling with power meter kJ ≈ kcal
+    3. Distance-based — run/swim/hike with body-weight metabolic cost
+    4. MET duration-based — gym/indoor sports without distance
+    5. Strava kJ fallback
+    """
+    # 1. HR-based calorie estimate (Keytel formula)
+    if (
+        avg_hr and max_hr and resting_hr and weight_kg and age and sex
+        and duration_s and avg_hr > resting_hr
+    ):
+        duration_min = duration_s / 60.0
+        if sex == "M":
+            kcal_per_min = (0.6309 * avg_hr + 0.1988 * weight_kg + 0.2017 * age - 55.0969) / 4.184
+        else:
+            kcal_per_min = (0.4472 * avg_hr - 0.1263 * weight_kg + 0.074 * age - 20.4022) / 4.184
+        if kcal_per_min > 0:
+            return kcal_per_min * duration_min
+
+    # 2. Power-based for cycling
     if sport_type in ("Ride", "VirtualRide"):
         return strava_kj  # kJ from power meter ≈ kcal
 
+    # 3. Distance-based for running/swimming/hiking
     if sport_type in KCAL_PER_KG_PER_KM and distance_m and weight_kg:
         distance_km = distance_m / 1000
         return distance_km * weight_kg * KCAL_PER_KG_PER_KM[sport_type]
+
+    # 4. MET-based for gym/indoor sports
+    if sport_type in MET_BY_SPORT and weight_kg and duration_s:
+        hours = duration_s / 3600.0
+        return MET_BY_SPORT[sport_type] * weight_kg * hours
 
     return strava_kj
 
@@ -113,6 +159,10 @@ def backfill_from_raw_json():
     with get_session() as session:
         settings = session.get(AthleteSettings, 1)
         weight_kg = settings.weight_kg if settings else None
+        max_hr = settings.max_hr if settings else None
+        resting_hr = settings.resting_hr if settings else None
+        age = settings.age if settings else None
+        sex = settings.sex if settings else None
 
         if not weight_kg:
             console.print("[yellow]Warning: No weight set in athlete settings. Run/swim kcal will use Strava estimates.[/yellow]")
@@ -131,6 +181,12 @@ def backfill_from_raw_json():
                 distance_m=act.distance,
                 strava_kj=act.kilojoules,
                 weight_kg=weight_kg,
+                duration_s=act.moving_time,
+                avg_hr=act.average_heartrate,
+                max_hr=max_hr,
+                resting_hr=resting_hr,
+                age=age,
+                sex=sex,
             )
             count += 1
         session.commit()

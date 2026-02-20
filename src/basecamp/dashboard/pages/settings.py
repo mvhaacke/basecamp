@@ -43,6 +43,8 @@ current = {
     "resting_hr": int(settings.resting_hr) if settings and settings.resting_hr else None,
     "lthr": int(settings.lthr) if settings and settings.lthr else None,
     "weight_kg": float(settings.weight_kg) if settings and settings.weight_kg else None,
+    "age": int(settings.age) if settings and settings.age else None,
+    "sex": settings.sex if settings and settings.sex else None,
 }
 
 run_pace_mins, run_pace_secs = seconds_to_pace(current["run_pace"])
@@ -57,6 +59,8 @@ col1, col2 = st.columns(2)
 with col1:
     with st.form("settings_form"):
         weight_kg = st.number_input("Weight (kg)", value=current["weight_kg"] or 0.0, min_value=0.0, step=0.5, format="%.1f")
+        age = st.number_input("Age", value=current["age"] or 0, min_value=0, step=1)
+        sex = st.selectbox("Sex", ["M", "F"], index=0 if current["sex"] != "F" else 1)
         ftp = st.number_input("Cycling FTP (W)", value=current["ftp"] or 0, min_value=0, step=5)
 
         st.markdown("**Run Threshold Pace** (per km)")
@@ -85,6 +89,8 @@ with col1:
                     settings = AthleteSettings(id=1)
                     session.add(settings)
                 settings.weight_kg = weight_kg or None
+                settings.age = age or None
+                settings.sex = sex
                 settings.ftp = ftp or None
                 settings.run_threshold_pace = pace_to_seconds(run_mins, run_secs)
                 settings.swim_css = pace_to_seconds(swim_mins, swim_secs)

@@ -150,4 +150,6 @@ class AthleteSettings(Base):
     resting_hr = Column(Integer)
     lthr = Column(Integer)
     weight_kg = Column(Float)
+    age = Column(Integer)    # for Keytel HR calorie formula
+    sex = Column(String)     # 'M' or 'F'
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

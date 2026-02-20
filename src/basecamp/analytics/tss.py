@@ -65,6 +65,23 @@ def duration_tss(duration_s: float, tss_per_hour: float) -> float:
     return duration_s / 3600.0 * tss_per_hour
 
 
+def pace_tss(duration_s: float, avg_speed_m_per_s: float, threshold_pace_s_per_km: float) -> float:
+    """Running TSS: IF=1 at threshold pace gives 100 TSS/hr."""
+    avg_pace_s_per_km = 1000 / avg_speed_m_per_s
+    intensity_factor = threshold_pace_s_per_km / avg_pace_s_per_km  # slower pace → smaller IF
+    return (duration_s / 3600) * intensity_factor**2 * 100
+
+
+def css_tss(duration_s: float, distance_m: float, css_s_per_100m: float) -> float:
+    """Swim TSS: IF=1 at CSS gives 100 TSS/hr."""
+    avg_pace_s_per_100m = (duration_s / distance_m) * 100
+    intensity_factor = css_s_per_100m / avg_pace_s_per_100m
+    return (duration_s / 3600) * intensity_factor**2 * 100
+
+
+TRI_SPORTS = {"Ride", "VirtualRide", "Run", "TrailRun", "Swim"}
+
+
 def compute_activity_tss(
     sport_type: str,
     duration_s: float,
@@ -72,13 +89,20 @@ def compute_activity_tss(
     average_watts: float | None,
     average_heartrate: float | None,
     thresholds: AthleteThresholds,
+    average_speed_m_per_s: float | None = None,
+    distance_m: float | None = None,
 ) -> tuple[float | None, str]:
     """Returns (tss_value, method_used) for an activity.
 
-    Priority:
-    1. Power-based TSS for cycling (requires FTP and power data)
-    2. HR-based TSS for all sports (requires HR thresholds)
-    3. Duration-based fallback
+    Priority for triathlon sports (Ride, Run, Swim):
+    1. Power TSS — cycling with FTP and power data
+    2. Pace TSS — running with threshold pace and speed
+    3. CSS TSS  — swimming with CSS and distance
+    4. Duration fallback
+
+    Non-triathlon sports (WeightTraining, Rowing, Yoga, etc.):
+    5. HR TSS   — TRIMP-style when HR thresholds are set
+    6. Duration fallback
     """
     # Power-based TSS only for cycling (running power from Strava is unreliable)
     if sport_type in ("Ride", "VirtualRide") and thresholds.ftp:
@@ -86,8 +110,17 @@ def compute_activity_tss(
         if np and np > 0:
             return power_tss(duration_s, np, thresholds.ftp), "power"
 
-    # HR-based TSS for all sports
-    if (
+    # Pace-based TSS for running
+    if sport_type in ("Run", "TrailRun") and thresholds.run_threshold_pace and average_speed_m_per_s:
+        if average_speed_m_per_s > 0:
+            return pace_tss(duration_s, average_speed_m_per_s, thresholds.run_threshold_pace), "pace"
+
+    # CSS-based TSS for swimming
+    if sport_type == "Swim" and thresholds.swim_css and distance_m and distance_m > 0:
+        return css_tss(duration_s, distance_m, thresholds.swim_css), "css"
+
+    # For non-triathlon sports, try HR before falling back to duration
+    if sport_type not in TRI_SPORTS and (
         average_heartrate
         and thresholds.max_hr
         and thresholds.resting_hr
