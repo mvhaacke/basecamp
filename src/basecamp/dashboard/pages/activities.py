@@ -6,8 +6,6 @@ from sqlalchemy import func, select
 from basecamp.database import get_session
 from basecamp.models import Activity
 
-st.title("Activities")
-
 # --- Filters ---
 
 with get_session() as session:
@@ -55,4 +53,4 @@ else:
             "kcal": int(act.computed_calories) if act.computed_calories else None,
         })
 
-    st.dataframe(rows, width="stretch", hide_index=True)
+    st.dataframe(rows, use_container_width=True, hide_index=True)

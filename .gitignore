@@ -13,6 +13,7 @@ build/
 venv/
 
 .garth/
+.playwright-mcp/
 
 .idea/
 .vscode/

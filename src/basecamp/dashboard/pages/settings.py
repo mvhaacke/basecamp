@@ -26,11 +26,7 @@ def pace_to_seconds(mins: int, secs: int) -> float | None:
     return float(total) if total > 0 else None
 
 
-st.title("Settings")
-
-# --- Athlete Thresholds ---
-
-st.subheader("Athlete Thresholds")
+st.markdown('<div class="section-header">Athlete Thresholds</div>', unsafe_allow_html=True)
 
 with get_session() as session:
     settings = session.get(AthleteSettings, 1)
@@ -102,9 +98,7 @@ with col1:
             st.success("Thresholds saved!")
             st.rerun()
 
-# --- Data Sync ---
-
-st.subheader("Data Sync")
+st.markdown('<div class="section-header">Data Sync</div>', unsafe_allow_html=True)
 
 with get_session() as session:
     strava_count = session.execute(select(func.count(Activity.id))).scalar()
