@@ -692,7 +692,7 @@ function ActivityView({ refreshTick }: { refreshTick: number }) {
                 <LineChart data={chartData}>
                   <XAxis
                     dataKey="time"
-                    tickFormatter={(value) => `${Math.round(Number(value) / 60)}m`}
+                    tickFormatter={(value) => formatElapsedHms(Number(value))}
                     minTickGap={48}
                   />
                   <YAxis yAxisId="hr" hide />
@@ -706,7 +706,7 @@ function ActivityView({ refreshTick }: { refreshTick: number }) {
                       if (metric === 'pace') return [formatPace(Number(value)), 'Pace']
                       return [String(Math.round(Number(value))), String(name)]
                     }}
-                    labelFormatter={(value) => `Minute ${Math.round(Number(value) / 60)}`}
+                    labelFormatter={(value) => formatElapsedHms(Number(value))}
                   />
                   {hasHrStream && (
                     <Line type="monotone" dataKey="hr" name="Heart Rate" stroke="var(--hr)" strokeWidth={2.25} dot={false} yAxisId="hr" />
@@ -778,6 +778,14 @@ function formatPace(secondsPerKm: number) {
   const mins = Math.floor(total / 60)
   const secs = total % 60
   return `${mins}:${String(secs).padStart(2, '0')} /km`
+}
+
+function formatElapsedHms(seconds: number) {
+  const total = Math.max(0, Math.round(seconds))
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const secs = total % 60
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
 }
 
 function numberOrDash(value: number | null | undefined, suffix = '') {
