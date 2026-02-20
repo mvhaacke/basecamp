@@ -700,10 +700,11 @@ function ActivityView({ refreshTick }: { refreshTick: number }) {
                   <YAxis yAxisId="pace" hide reversed />
                   <Tooltip
                     formatter={(value, name) => {
-                      if (name === 'hr') return [`${Math.round(Number(value))} bpm`, 'Heart Rate']
-                      if (name === 'watts') return [`${Math.round(Number(value))} W`, 'Power']
-                      if (name === 'pace') return [formatPace(Number(value)), 'Pace']
-                      return [String(value), String(name)]
+                      const metric = String(name).toLowerCase()
+                      if (metric === 'hr' || metric === 'heart rate') return [`${Math.round(Number(value))} bpm`, 'Heart Rate']
+                      if (metric === 'watts' || metric === 'power') return [`${Math.round(Number(value))} W`, 'Power']
+                      if (metric === 'pace') return [formatPace(Number(value)), 'Pace']
+                      return [String(Math.round(Number(value))), String(name)]
                     }}
                     labelFormatter={(value) => `Minute ${Math.round(Number(value) / 60)}`}
                   />
