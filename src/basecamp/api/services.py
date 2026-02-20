@@ -5,6 +5,7 @@ from sqlalchemy import desc, func, select
 
 from basecamp.analytics.pmc import compute_pmc
 from basecamp.analytics.tss import AthleteThresholds, compute_activity_tss
+from basecamp.analytics.zones import ZoneThresholds, compute_activity_zones
 from basecamp.database import get_session
 from basecamp.models import Activity, AthleteSettings, GarminDailySummary, Stream
 
@@ -38,6 +39,16 @@ def _activity_tss(activity: Activity, thresholds: AthleteThresholds) -> float:
         distance_m=activity.distance,
     )
     return float(tss or 0)
+
+
+def _sport_bucket(sport_type: str | None) -> str:
+    if sport_type in {"Run", "TrailRun", "VirtualRun", "TreadmillRun"}:
+        return "Run"
+    if sport_type in {"Ride", "VirtualRide", "MountainBikeRide", "GravelRide", "EBikeRide"}:
+        return "Bike"
+    if sport_type == "Swim":
+        return "Swim"
+    return "Other"
 
 
 def build_status_summary() -> dict:
@@ -96,20 +107,35 @@ def build_calendar_summary(start: date, end: date) -> dict:
     with get_session() as session:
         settings = session.get(AthleteSettings, 1)
         thresholds = _build_thresholds(settings)
+        zone_thresholds = ZoneThresholds(
+            lthr=settings.lthr if settings else None,
+            ftp=settings.ftp if settings else None,
+        )
         activities = session.execute(
             select(Activity)
             .where(_activity_datetime_expr() >= start)
             .where(_activity_datetime_expr() < end + timedelta(days=1))
             .order_by(_activity_datetime_expr())
         ).scalars().all()
+        activity_ids = [activity.id for activity in activities]
+        streams = (
+            session.execute(select(Stream).where(Stream.activity_id.in_(activity_ids))).scalars().all()
+            if activity_ids
+            else []
+        )
+
+    streams_by_activity = {stream.activity_id: stream for stream in streams}
 
     by_day: dict[date, dict[str, float | int | list[dict[str, str | int | None]]]] = {}
+    sport_seconds: dict[str, float] = {}
+    zone_seconds = {"lit": 0.0, "mit": 0.0, "hit": 0.0}
     for activity in activities:
         activity_dt = activity.start_date_local or activity.start_date
         activity_day = activity_dt.date()
         slot = by_day.setdefault(activity_day, {"sessions": 0, "duration_hours": 0.0, "tss": 0.0, "activities": []})
+        duration_seconds = float(activity.moving_time or 0)
         slot["sessions"] += 1
-        slot["duration_hours"] += float(activity.moving_time or 0) / 3600
+        slot["duration_hours"] += duration_seconds / 3600
         slot["tss"] += _activity_tss(activity, thresholds)
         slot["activities"].append(
             {
@@ -117,9 +143,17 @@ def build_calendar_summary(start: date, end: date) -> dict:
                 "name": activity.name,
                 "sport_type": activity.sport_type,
                 "start_time": activity_dt.strftime("%H:%M"),
-                "duration_minutes": int(round(float(activity.moving_time or 0) / 60)),
+                "duration_minutes": int(round(duration_seconds / 60)),
             }
         )
+        sport = _sport_bucket(activity.sport_type)
+        sport_seconds[sport] = sport_seconds.get(sport, 0.0) + duration_seconds
+
+        zone_values = compute_activity_zones(activity, streams_by_activity.get(activity.id), zone_thresholds)
+        if zone_values:
+            zone_seconds["lit"] += float(zone_values["lit"])
+            zone_seconds["mit"] += float(zone_values["mit"])
+            zone_seconds["hit"] += float(zone_values["hit"])
 
     days = []
     totals = {"sessions": 0, "duration_hours": 0.0, "tss": 0.0}
@@ -142,7 +176,21 @@ def build_calendar_summary(start: date, end: date) -> dict:
 
     totals["duration_hours"] = round(totals["duration_hours"], 1)
     totals["tss"] = round(totals["tss"], 1)
-    return {"days": days, "totals": totals}
+    return {
+        "days": days,
+        "totals": totals,
+        "breakdown": {
+            "sport_minutes": [
+                {"sport_type": sport, "minutes": int(round(seconds / 60))}
+                for sport, seconds in sorted(sport_seconds.items(), key=lambda item: item[1], reverse=True)
+            ],
+            "zone_minutes": {
+                "lit": int(round(zone_seconds["lit"] / 60)),
+                "mit": int(round(zone_seconds["mit"] / 60)),
+                "hit": int(round(zone_seconds["hit"] / 60)),
+            },
+        },
+    }
 
 
 def list_recent_activities(limit: int) -> list[dict]:

@@ -31,6 +31,28 @@ class CalendarTotals(BaseModel):
     tss: float
 
 
+class SportMinutes(BaseModel):
+    sport_type: str
+    minutes: int
+
+
+class ZoneMinutes(BaseModel):
+    lit: int
+    mit: int
+    hit: int
+
+
+class CalendarBreakdown(BaseModel):
+    sport_minutes: list[SportMinutes] = Field(default_factory=list)
+    zone_minutes: ZoneMinutes
+
+
+class CalendarResponse(BaseModel):
+    days: list[CalendarDay]
+    totals: CalendarTotals
+    breakdown: CalendarBreakdown
+
+
 class ActivityListItem(BaseModel):
     id: int
     start_date: str

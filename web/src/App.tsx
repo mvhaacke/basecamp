@@ -40,6 +40,19 @@ type CalendarPayload = {
     duration_hours: number
     tss: number
   }
+  breakdown: CalendarBreakdown
+}
+
+type CalendarBreakdown = {
+  sport_minutes: Array<{
+    sport_type: string
+    minutes: number
+  }>
+  zone_minutes: {
+    lit: number
+    mit: number
+    hit: number
+  }
 }
 
 type Activity = {
@@ -282,6 +295,10 @@ function CalendarView({ refreshTick }: { refreshTick: number }) {
   const [anchorMonth, setAnchorMonth] = useState(() => firstDayOfMonth(new Date()))
   const [days, setDays] = useState<CalendarDay[]>([])
   const [totals, setTotals] = useState({ sessions: 0, duration_hours: 0, tss: 0 })
+  const [breakdown, setBreakdown] = useState<CalendarBreakdown>({
+    sport_minutes: [],
+    zone_minutes: { lit: 0, mit: 0, hit: 0 },
+  })
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -298,6 +315,7 @@ function CalendarView({ refreshTick }: { refreshTick: number }) {
       .then((payload: CalendarPayload) => {
         setDays(payload.days)
         setTotals(payload.totals)
+        setBreakdown(payload.breakdown)
 
         const todayKey = fmtDate(new Date())
         const hasToday = payload.days.some((day) => day.date === todayKey)
@@ -326,6 +344,50 @@ function CalendarView({ refreshTick }: { refreshTick: number }) {
   const selectedDay = days.find((day) => day.date === selectedDate) ?? null
   const monthLabel = anchorMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
   const monthInput = monthInputValue(anchorMonth)
+  const monthSummary = useMemo(() => {
+    const trainingDays = days.filter((day) => day.sessions > 0).length
+    const restDays = days.filter((day) => day.sessions === 0 && !isFutureDay(day.date)).length
+    const avgSessionMinutes =
+      totals.sessions > 0 ? Math.round(minutesFromHours(totals.duration_hours) / totals.sessions) : 0
+
+    let longestDate: string | null = null
+    let longestMinutes = 0
+    for (const day of days) {
+      const minutes = minutesFromHours(day.duration_hours)
+      if (day.sessions > 0 && minutes > longestMinutes) {
+        longestMinutes = minutes
+        longestDate = day.date
+      }
+    }
+
+    const sportCounts = new Map<string, number>()
+    for (const day of days) {
+      for (const activity of day.activities) {
+        const sport = activity.sport_type ?? 'Other'
+        sportCounts.set(sport, (sportCounts.get(sport) ?? 0) + 1)
+      }
+    }
+
+    const topSports = [...sportCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([sport, count]) => `${sport} (${count})`)
+
+    return {
+      trainingDays,
+      restDays,
+      avgSessionMinutes,
+      longestMinutes,
+      longestDate,
+      topSportsText: topSports.length > 0 ? topSports.join(' · ') : 'No sessions this month',
+    }
+  }, [days, totals.duration_hours, totals.sessions])
+  const zoneRows = [
+    { label: 'LIT', minutes: breakdown.zone_minutes.lit, tone: 'lit' },
+    { label: 'MIT', minutes: breakdown.zone_minutes.mit, tone: 'mit' },
+    { label: 'HIT', minutes: breakdown.zone_minutes.hit, tone: 'hit' },
+  ]
+  const zoneTotalMinutes = zoneRows.reduce((sum, row) => sum + row.minutes, 0)
 
   return (
     <section className="calendar-layout">
@@ -355,85 +417,166 @@ function CalendarView({ refreshTick }: { refreshTick: number }) {
 
       {error && <p className="state error">Calendar unavailable: {error}</p>}
 
-      <div className="totals">
-        <Card label="Sessions" value={totals.sessions.toString()} />
-        <Card label="Time" value={formatDurationMinutes(minutesFromHours(totals.duration_hours))} />
-        <Card label="TSS" value={Math.round(totals.tss).toString()} />
-      </div>
-
-      <div className="calendar-wrap panel">
-        <div className="calendar-scroll">
-          <div className="calendar-head">
-            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label) => (
-              <div key={label} className="calendar-head-cell">
-                {label}
-              </div>
-            ))}
+      <div className="calendar-main">
+        <div className="calendar-primary">
+          <div className="totals">
+            <Card label="Sessions" value={totals.sessions.toString()} />
+            <Card label="Time" value={formatDurationMinutes(minutesFromHours(totals.duration_hours))} />
+            <Card label="TSS" value={Math.round(totals.tss).toString()} />
           </div>
 
-          <div className="calendar-grid">
-            {calendarCells.map((day, index) => {
-              if (!day) {
-                return <div key={`blank-${index}`} className="calendar-cell blank" />
-              }
+          <div className="calendar-wrap panel">
+            <div className="calendar-scroll">
+              <div className="calendar-head">
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label) => (
+                  <div key={label} className="calendar-head-cell">
+                    {label}
+                  </div>
+                ))}
+              </div>
 
-              const minutes = minutesFromHours(day.duration_hours)
-              const isSelected = selectedDate === day.date
-              const future = isFutureDay(day.date)
-              const dayClass = dayLoadClass(day, future)
-              const tooltip = formatCalendarTooltip(day)
+              <div className="calendar-grid">
+                {calendarCells.map((day, index) => {
+                  if (!day) {
+                    return <div key={`blank-${index}`} className="calendar-cell blank" />
+                  }
 
-              return (
-                <button
-                  key={day.date}
-                  className={`calendar-cell ${dayClass}${isSelected ? ' selected' : ''}`}
-                  onClick={() => setSelectedDate(day.date)}
-                  title={tooltip}
-                >
-                  <p className="calendar-date">{new Date(`${day.date}T00:00:00`).getDate()}</p>
-                  <p className="calendar-meta">{day.sessions === 0 ? (future ? 'Upcoming' : 'Rest') : `${day.sessions} sessions`}</p>
-                  <p className="calendar-meta">{formatDurationMinutes(minutes)}</p>
-                  <p className="calendar-meta">{Math.round(day.tss)} TSS</p>
-                </button>
-              )
-            })}
+                  const minutes = minutesFromHours(day.duration_hours)
+                  const isSelected = selectedDate === day.date
+                  const future = isFutureDay(day.date)
+                  const dayClass = dayLoadClass(day, future)
+                  const tooltip = formatCalendarTooltip(day)
+
+                  return (
+                    <button
+                      key={day.date}
+                      className={`calendar-cell ${dayClass}${isSelected ? ' selected' : ''}`}
+                      onClick={() => setSelectedDate(day.date)}
+                      title={tooltip}
+                    >
+                      <p className="calendar-date">{new Date(`${day.date}T00:00:00`).getDate()}</p>
+                      <p className="calendar-meta">{day.sessions === 0 ? (future ? 'Upcoming' : 'Rest') : `${day.sessions} sessions`}</p>
+                      <p className="calendar-meta">{formatDurationMinutes(minutes)}</p>
+                      <p className="calendar-meta">{Math.round(day.tss)} TSS</p>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
           </div>
         </div>
-      </div>
 
-      <article className="panel selected-day">
-        <h3>{selectedDay ? humanDate(selectedDay.date) : 'No day selected'}</h3>
-        {selectedDay ? (
-          <>
-            <div className="grid compact">
-              <Card label="Sessions" value={selectedDay.sessions.toString()} />
-              <Card label="Time" value={formatDurationMinutes(minutesFromHours(selectedDay.duration_hours))} />
-              <Card label="TSS" value={Math.round(selectedDay.tss).toString()} />
-              <Card label="Load" value={dayLoadClass(selectedDay, isFutureDay(selectedDay.date))} />
-            </div>
+        <aside className="calendar-side">
+          <article className="panel month-summary side-block">
+            <h3>Month Totals</h3>
+            <ul className="summary-list">
+              <li>
+                <span>Training days</span>
+                <strong>{monthSummary.trainingDays}</strong>
+              </li>
+              <li>
+                <span>Rest days</span>
+                <strong>{monthSummary.restDays}</strong>
+              </li>
+              <li>
+                <span>Avg session</span>
+                <strong>{monthSummary.avgSessionMinutes > 0 ? formatDurationMinutes(monthSummary.avgSessionMinutes) : '-'}</strong>
+              </li>
+              <li title={monthSummary.longestDate ? `On ${humanDate(monthSummary.longestDate)}` : undefined}>
+                <span>Longest day</span>
+                <strong>{monthSummary.longestMinutes > 0 ? formatDurationMinutes(monthSummary.longestMinutes) : '-'}</strong>
+              </li>
+            </ul>
+            <p className="month-sports">Top sports: {monthSummary.topSportsText}</p>
+          </article>
 
-            <div className="selected-activities">
-              <p className="selected-activities-title">Activities</p>
-              {selectedDay.activities.length === 0 ? (
-                <p className="state">No activities logged for this day.</p>
-              ) : (
-                <ul>
-                  {selectedDay.activities.map((activity) => (
-                    <li key={activity.id}>
-                      <span>{activity.start_time}</span>
-                      <strong>{activity.sport_type ?? 'Activity'}</strong>
-                      <span>{activity.name ?? 'Untitled activity'}</span>
-                      <span>{formatDurationMinutes(activity.duration_minutes)}</span>
-                    </li>
-                  ))}
+          <article className="panel side-block">
+            <h3>Time by Sport</h3>
+            {breakdown.sport_minutes.length === 0 ? (
+              <p className="state">No sessions in this month.</p>
+            ) : (
+              <ul className="summary-list">
+                {breakdown.sport_minutes.map((entry) => (
+                  <li key={entry.sport_type}>
+                    <span>{entry.sport_type}</span>
+                    <strong>{formatDurationMinutes(entry.minutes)}</strong>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </article>
+
+          <article className="panel side-block">
+            <h3>Time by Zone</h3>
+            {zoneTotalMinutes === 0 ? (
+              <p className="state">No zone data for this month.</p>
+            ) : (
+              <ul className="zone-list">
+                {zoneRows.map((zone) => (
+                  <li key={zone.label}>
+                    <div className="zone-row">
+                      <span>{zone.label}</span>
+                      <strong>{formatDurationMinutes(zone.minutes)}</strong>
+                    </div>
+                    <div className="zone-track">
+                      <span
+                        className={`zone-fill ${zone.tone}`}
+                        style={{ width: `${Math.round((zone.minutes / zoneTotalMinutes) * 100)}%` }}
+                      />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </article>
+
+          <article className="panel selected-day side-block">
+            <h3>{selectedDay ? humanDate(selectedDay.date) : 'No day selected'}</h3>
+            {selectedDay ? (
+              <>
+                <ul className="summary-list">
+                  <li>
+                    <span>Sessions</span>
+                    <strong>{selectedDay.sessions}</strong>
+                  </li>
+                  <li>
+                    <span>Time</span>
+                    <strong>{formatDurationMinutes(minutesFromHours(selectedDay.duration_hours))}</strong>
+                  </li>
+                  <li>
+                    <span>TSS</span>
+                    <strong>{Math.round(selectedDay.tss)}</strong>
+                  </li>
+                  <li>
+                    <span>Load</span>
+                    <strong>{dayLoadClass(selectedDay, isFutureDay(selectedDay.date))}</strong>
+                  </li>
                 </ul>
-              )}
-            </div>
-          </>
-        ) : (
-          <p className="state">Select a day to inspect details.</p>
-        )}
-      </article>
+
+                <div className="selected-activities">
+                  <p className="selected-activities-title">Activities</p>
+                  {selectedDay.activities.length === 0 ? (
+                    <p className="state">No activities logged for this day.</p>
+                  ) : (
+                    <ul>
+                      {selectedDay.activities.map((activity) => (
+                        <li key={activity.id}>
+                          <span>{activity.start_time}</span>
+                          <strong>{activity.sport_type ?? 'Activity'}</strong>
+                          <span>{activity.name ?? 'Untitled activity'}</span>
+                          <span>{formatDurationMinutes(activity.duration_minutes)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </>
+            ) : (
+              <p className="state">Select a day to inspect details.</p>
+            )}
+          </article>
+        </aside>
+      </div>
     </section>
   )
 }

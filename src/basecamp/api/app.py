@@ -3,7 +3,7 @@ from datetime import date
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from basecamp.api.schemas import ActivityDetail, ActivityListItem, CalendarDay, CalendarTotals, StatusSummary
+from basecamp.api.schemas import ActivityDetail, ActivityListItem, CalendarResponse, StatusSummary
 from basecamp.api.services import (
     build_calendar_summary,
     build_status_summary,
@@ -36,16 +36,12 @@ def get_status() -> StatusSummary:
     return StatusSummary.model_validate(build_status_summary())
 
 
-@app.get("/api/calendar")
+@app.get("/api/calendar", response_model=CalendarResponse)
 def get_calendar(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
-) -> dict[str, list[CalendarDay] | CalendarTotals]:
-    payload = build_calendar_summary(start, end)
-    return {
-        "days": [CalendarDay.model_validate(day) for day in payload["days"]],
-        "totals": CalendarTotals.model_validate(payload["totals"]),
-    }
+) -> CalendarResponse:
+    return CalendarResponse.model_validate(build_calendar_summary(start, end))
 
 
 @app.get("/api/activities", response_model=list[ActivityListItem])

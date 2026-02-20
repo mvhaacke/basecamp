@@ -169,11 +169,10 @@ def sync_wellness(days: int = 30, start: date | None = None, end: date | None = 
 
     with get_session() as session:
         today = date.today()
-        yesterday = today - timedelta(days=1)
 
         if start:
             start_date = start
-            end_date = end or yesterday
+            end_date = end or today
         else:
             latest = (
                 session.query(GarminDailySummary)
@@ -183,11 +182,13 @@ def sync_wellness(days: int = 30, start: date | None = None, end: date | None = 
             earliest = today - timedelta(days=days)
 
             if latest and latest.date:
-                incremental_start = latest.date + timedelta(days=1)
-                start_date = max(earliest, incremental_start)
+                # Refresh with a small overlap to catch late-arriving updates
+                # (e.g. last-night sleep/HRV appearing later in the morning).
+                overlap_start = latest.date - timedelta(days=1)
+                start_date = max(earliest, overlap_start)
             else:
                 start_date = earliest
-            end_date = yesterday
+            end_date = today
 
         if start_date > end_date:
             console.print("Already up to date.")
