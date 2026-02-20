@@ -413,6 +413,9 @@ select:focus {
   min-height: 112px;
   padding: 0.6rem;
   text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
 }
 
 button.calendar-cell {
@@ -472,6 +475,39 @@ button.calendar-cell:hover {
   margin: 0;
   font-size: 0.76rem;
   color: #536575;
+}
+
+.activity-mini-stack {
+  margin-top: auto;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.activity-mini {
+  display: block;
+  height: 7px;
+  border-radius: 999px;
+}
+
+.activity-mini.run {
+  background: linear-gradient(90deg, #4f7cf0, #7ea3ff);
+}
+
+.activity-mini.bike {
+  background: linear-gradient(90deg, #e48738, #f3a964);
+}
+
+.activity-mini.swim {
+  background: linear-gradient(90deg, #1a97d8, #59bdee);
+}
+
+.activity-mini.other {
+  background: linear-gradient(90deg, #7a8c9d, #9daab6);
+}
+
+.activity-mini-more {
+  font-size: 0.72rem;
+  color: #5d7183;
 }
 
 .month-sports {
@@ -588,6 +624,54 @@ button.calendar-cell:hover {
 .selected-activities li strong {
   font-size: 0.82rem;
   color: #334a5d;
+}
+
+.day-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgba(18, 31, 42, 0.42);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.day-modal {
+  width: min(760px, 100%);
+  max-height: 88vh;
+  overflow: auto;
+}
+
+.day-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.72rem;
+}
+
+.day-modal-head h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  color: #273f52;
+}
+
+.icon-button {
+  border: 1px solid var(--line);
+  background: white;
+  color: #43596b;
+  border-radius: 10px;
+  width: 32px;
+  height: 32px;
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  border-color: #8ea8b8;
 }
 
 label {
