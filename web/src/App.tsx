@@ -47,6 +47,15 @@ type ActivityDetail = {
   wellness: Record<string, number | null>
 }
 
+type CalendarPayload = {
+  days: CalendarDay[]
+  totals: {
+    sessions: number
+    duration_hours: number
+    tss: number
+  }
+}
+
 const API_BASE = 'http://127.0.0.1:8000'
 
 export function App() {
@@ -82,7 +91,7 @@ function StatusView() {
       .then(setStatus)
   }, [])
 
-  if (!status) return <p>Loading status…</p>
+  if (!status) return <p>Loading status...</p>
 
   return (
     <section>
@@ -104,36 +113,63 @@ function StatusView() {
 function CalendarView() {
   const [days, setDays] = useState<CalendarDay[]>([])
   const [totals, setTotals] = useState({ sessions: 0, duration_hours: 0, tss: 0 })
+  const [monthLabel, setMonthLabel] = useState('')
 
   useEffect(() => {
     const start = new Date()
     start.setDate(1)
     const end = new Date(start.getFullYear(), start.getMonth() + 1, 0)
+    setMonthLabel(start.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }))
 
     fetch(`${API_BASE}/api/calendar?start=${fmtDate(start)}&end=${fmtDate(end)}`)
       .then((response) => response.json())
-      .then((payload) => {
+      .then((payload: CalendarPayload) => {
         setDays(payload.days)
         setTotals(payload.totals)
       })
   }, [])
 
+  const calendarCells = useMemo(() => {
+    if (days.length === 0) return []
+    const firstDay = new Date(`${days[0].date}T00:00:00`)
+    const leadingBlanks = firstDay.getDay()
+    const cells: Array<CalendarDay | null> = []
+    for (let i = 0; i < leadingBlanks; i += 1) cells.push(null)
+    for (const day of days) cells.push(day)
+    while (cells.length % 7 !== 0) cells.push(null)
+    return cells
+  }, [days])
+
   return (
     <section>
+      <h2>{monthLabel || 'Calendar'}</h2>
       <div className="totals">
         <Card label="Sessions" value={totals.sessions.toString()} />
         <Card label="Hours" value={totals.duration_hours.toFixed(1)} />
         <Card label="TSS" value={totals.tss.toFixed(1)} />
       </div>
-      <div className="chart-wrap">
-        <ResponsiveContainer width="100%" height={280}>
-          <LineChart data={days}>
-            <XAxis dataKey="date" hide />
-            <YAxis />
-            <Tooltip />
-            <Line type="monotone" dataKey="tss" stroke="#267a8c" strokeWidth={2} dot={false} />
-          </LineChart>
-        </ResponsiveContainer>
+      <div className="calendar-wrap">
+        <div className="calendar-head">
+          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label) => (
+            <div key={label} className="calendar-head-cell">
+              {label}
+            </div>
+          ))}
+        </div>
+        <div className="calendar-grid">
+          {calendarCells.map((day, index) => (
+            <article key={`${day?.date ?? 'blank'}-${index}`} className={`calendar-cell${day ? '' : ' blank'}`}>
+              {day && (
+                <>
+                  <p className="calendar-date">{new Date(`${day.date}T00:00:00`).getDate()}</p>
+                  <h3>{day.sessions ? `${day.sessions} session${day.sessions > 1 ? 's' : ''}` : 'Rest'}</h3>
+                  <p>{day.duration_hours.toFixed(1)} h</p>
+                  <p>{day.tss.toFixed(0)} TSS</p>
+                </>
+              )}
+            </article>
+          ))}
+        </div>
       </div>
     </section>
   )
@@ -143,21 +179,39 @@ function ActivityView() {
   const [activities, setActivities] = useState<Activity[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [detail, setDetail] = useState<ActivityDetail | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [loadingDetail, setLoadingDetail] = useState(false)
 
   useEffect(() => {
     fetch(`${API_BASE}/api/activities?limit=100`)
-      .then((response) => response.json())
+      .then((response) => {
+        if (!response.ok) throw new Error('Failed to load activities')
+        return response.json()
+      })
       .then((items: Activity[]) => {
         setActivities(items)
         if (items.length > 0) setSelectedId(items[0].id)
+      })
+      .catch((err: Error) => {
+        setError(err.message)
       })
   }, [])
 
   useEffect(() => {
     if (!selectedId) return
+    setLoadingDetail(true)
+    setError(null)
     fetch(`${API_BASE}/api/activities/${selectedId}`)
-      .then((response) => response.json())
+      .then((response) => {
+        if (!response.ok) throw new Error('Failed to load activity detail')
+        return response.json()
+      })
       .then(setDetail)
+      .catch((err: Error) => {
+        setDetail(null)
+        setError(err.message)
+      })
+      .finally(() => setLoadingDetail(false))
   }, [selectedId])
 
   const chartData = useMemo(() => {
@@ -171,9 +225,12 @@ function ActivityView() {
 
   return (
     <section>
+      {error && <p>{error}</p>}
+      {activities.length === 0 && !error && <p>No activities found. Run `basecamp strava sync` first.</p>}
       <label>
         Activity
         <select value={selectedId ?? ''} onChange={(event) => setSelectedId(Number(event.target.value))}>
+          {activities.length === 0 && <option value="">No activities</option>}
           {activities.map((activity) => (
             <option key={activity.id} value={activity.id}>
               {new Date(activity.start_date).toLocaleDateString()} · {activity.sport_type} · {activity.name}
@@ -182,6 +239,7 @@ function ActivityView() {
         </select>
       </label>
 
+      {loadingDetail && <p>Loading activity...</p>}
       {detail && (
         <>
           <div className="grid">
@@ -194,15 +252,19 @@ function ActivityView() {
           </div>
 
           <div className="chart-wrap">
-            <ResponsiveContainer width="100%" height={280}>
-              <LineChart data={chartData}>
-                <XAxis dataKey="time" hide />
-                <YAxis />
-                <Tooltip />
-                <Line type="monotone" dataKey="hr" stroke="#8a6ec9" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="watts" stroke="#c27836" strokeWidth={2} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
+            {chartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={280}>
+                <LineChart data={chartData}>
+                  <XAxis dataKey="time" hide />
+                  <YAxis />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="hr" stroke="#8a6ec9" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="watts" stroke="#c27836" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <p>No stream data for this activity. Re-sync with `basecamp strava sync --streams`.</p>
+            )}
           </div>
         </>
       )}

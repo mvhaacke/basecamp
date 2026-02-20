@@ -1,12 +1,16 @@
 import json
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 
 from basecamp.analytics.pmc import compute_pmc
 from basecamp.analytics.tss import AthleteThresholds, compute_activity_tss
 from basecamp.database import get_session
 from basecamp.models import Activity, AthleteSettings, GarminDailySummary, Stream
+
+
+def _activity_datetime_expr():
+    return func.coalesce(Activity.start_date_local, Activity.start_date)
 
 
 def _build_thresholds(settings: AthleteSettings | None) -> AthleteThresholds:
@@ -45,7 +49,7 @@ def build_status_summary() -> dict:
         thresholds = _build_thresholds(settings)
 
         week_activities = session.execute(
-            select(Activity).where(Activity.start_date_local >= week_ago)
+            select(Activity).where(_activity_datetime_expr() >= week_ago)
         ).scalars().all()
 
         weekly_seconds = sum(float(a.moving_time or 0) for a in week_activities)
@@ -94,9 +98,9 @@ def build_calendar_summary(start: date, end: date) -> dict:
         thresholds = _build_thresholds(settings)
         activities = session.execute(
             select(Activity)
-            .where(Activity.start_date_local >= start)
-            .where(Activity.start_date_local < end + timedelta(days=1))
-            .order_by(Activity.start_date_local)
+            .where(_activity_datetime_expr() >= start)
+            .where(_activity_datetime_expr() < end + timedelta(days=1))
+            .order_by(_activity_datetime_expr())
         ).scalars().all()
 
     by_day: dict[date, dict[str, float | int]] = {}
@@ -133,7 +137,7 @@ def build_calendar_summary(start: date, end: date) -> dict:
 def list_recent_activities(limit: int) -> list[dict]:
     with get_session() as session:
         activities = session.execute(
-            select(Activity).order_by(desc(Activity.start_date_local)).limit(limit)
+            select(Activity).order_by(desc(_activity_datetime_expr())).limit(limit)
         ).scalars().all()
     return [
         {
@@ -159,14 +163,17 @@ def get_activity_detail(activity_id: int) -> dict | None:
     def _parse_stream(value: str | None) -> list[float]:
         if not value:
             return []
-        parsed = json.loads(value)
-        return parsed if isinstance(parsed, list) else []
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, list) else []
+        except json.JSONDecodeError:
+            return []
 
     return {
         "id": activity.id,
         "sport_type": activity.sport_type,
         "name": activity.name,
-        "start_date": (activity.start_date_local or activity.start_date).isoformat(),
+        "start_date": (activity.start_date_local or activity.start_date or datetime.now()).isoformat(),
         "duration_s": int(activity.moving_time or 0),
         "distance_m": activity.distance,
         "average_heartrate": activity.average_heartrate,
