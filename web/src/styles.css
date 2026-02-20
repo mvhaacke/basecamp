@@ -1,0 +1,89 @@
+:root {
+  font-family: Inter, system-ui, -apple-system, Segoe UI, sans-serif;
+  color: #1d2932;
+  background: #f8fafb;
+}
+
+body {
+  margin: 0;
+}
+
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+header h1 {
+  margin-bottom: 0.2rem;
+}
+
+header p {
+  margin-top: 0;
+  color: #66757f;
+}
+
+nav {
+  display: flex;
+  gap: 0.5rem;
+  margin: 1rem 0 1.5rem;
+}
+
+button {
+  border: 1px solid #c8d3d9;
+  border-radius: 999px;
+  padding: 0.5rem 1rem;
+  background: white;
+  text-transform: capitalize;
+}
+
+button.active {
+  background: #1f6f82;
+  color: white;
+  border-color: #1f6f82;
+}
+
+.grid, .totals {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+article {
+  background: white;
+  border: 1px solid #d9e1e6;
+  border-radius: 10px;
+  padding: 0.8rem 1rem;
+}
+
+article p {
+  margin: 0;
+  color: #6d7d86;
+  font-size: 0.85rem;
+}
+
+article h3 {
+  margin: 0.4rem 0 0;
+  font-size: 1.3rem;
+}
+
+blockquote {
+  margin: 1rem 0 0;
+  padding: 1rem;
+  border-left: 3px solid #1f6f82;
+  color: #4d606a;
+  background: #edf4f7;
+}
+
+.chart-wrap {
+  margin-top: 1rem;
+  background: white;
+  border: 1px solid #d9e1e6;
+  border-radius: 10px;
+  padding: 0.5rem;
+}
+
+select {
+  margin-left: 0.5rem;
+  padding: 0.4rem;
+}
