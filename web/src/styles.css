@@ -437,10 +437,6 @@ button.calendar-cell:hover {
   border-style: dashed;
 }
 
-.calendar-cell.rest {
-  background: linear-gradient(180deg, #fbfcfd 0%, #f4f7fa 100%);
-}
-
 .calendar-cell.future {
   background:
     repeating-linear-gradient(
@@ -451,18 +447,6 @@ button.calendar-cell:hover {
       #f1f5f9 12px
     );
   color: #607080;
-}
-
-.calendar-cell.low {
-  background: linear-gradient(180deg, #f1f8ff 0%, #e2efff 100%);
-}
-
-.calendar-cell.moderate {
-  background: linear-gradient(180deg, #eef9f1 0%, #ddf1e4 100%);
-}
-
-.calendar-cell.high {
-  background: linear-gradient(180deg, #fff3ec 0%, #ffe4d8 100%);
 }
 
 .calendar-date {

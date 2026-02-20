@@ -374,18 +374,9 @@ function CalendarView({ refreshTick }: { refreshTick: number }) {
       }
     }
 
-    const sportCounts = new Map<string, number>()
-    for (const day of days) {
-      for (const activity of day.activities) {
-        const sport = activity.sport_type ?? 'Other'
-        sportCounts.set(sport, (sportCounts.get(sport) ?? 0) + 1)
-      }
-    }
-
-    const topSports = [...sportCounts.entries()]
-      .sort((a, b) => b[1] - a[1])
+    const topSports = breakdown.sport_minutes
       .slice(0, 3)
-      .map(([sport, count]) => `${sport} (${count})`)
+      .map((entry) => `${entry.sport_type} ${formatDurationMinutes(entry.minutes)}`)
 
     return {
       trainingDays,
@@ -395,7 +386,7 @@ function CalendarView({ refreshTick }: { refreshTick: number }) {
       longestDate,
       topSportsText: topSports.length > 0 ? topSports.join(' · ') : 'No sessions this month',
     }
-  }, [days, totals.duration_hours, totals.sessions])
+  }, [days, totals.duration_hours, totals.sessions, breakdown.sport_minutes])
   const zoneRows = [
     { label: 'LIT', minutes: breakdown.zone_minutes.lit, tone: 'lit' },
     { label: 'MIT', minutes: breakdown.zone_minutes.mit, tone: 'mit' },
