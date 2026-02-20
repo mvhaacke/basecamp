@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 type TabKey = 'status' | 'calendar' | 'activity'
@@ -67,21 +67,117 @@ type ActivityDetail = {
   wellness: Record<string, number | null>
 }
 
+type SyncSnapshot = {
+  running: boolean
+  last_started_at: string | null
+  last_finished_at: string | null
+  last_success_at: string | null
+  last_error: string | null
+  status_message: string
+  last_trigger: string | null
+  runs: number
+}
+
+type SyncTriggerResponse = {
+  started: boolean
+  message: string
+  state: SyncSnapshot
+}
+
 const API_BASE = 'http://127.0.0.1:8000'
 const BIKE_SPORTS = new Set(['Ride', 'VirtualRide', 'MountainBikeRide', 'GravelRide', 'EBikeRide'])
 const RUN_SPORTS = new Set(['Run', 'TrailRun', 'VirtualRun', 'TreadmillRun'])
 
 export function App() {
   const [tab, setTab] = useState<TabKey>('status')
+  const [syncState, setSyncState] = useState<SyncSnapshot | null>(null)
+  const [syncError, setSyncError] = useState<string | null>(null)
+  const [refreshTick, setRefreshTick] = useState(0)
+  const [triggeringSync, setTriggeringSync] = useState(false)
+  const seenFinishedAt = useRef<string | null>(null)
+
+  const fetchSyncState = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/sync`)
+      if (!response.ok) throw new Error('Could not load sync status')
+      const snapshot: SyncSnapshot = await response.json()
+      setSyncState(snapshot)
+      setSyncError(null)
+
+      if (snapshot.last_finished_at != null) {
+        if (seenFinishedAt.current == null) {
+          seenFinishedAt.current = snapshot.last_finished_at
+        } else if (seenFinishedAt.current !== snapshot.last_finished_at) {
+          seenFinishedAt.current = snapshot.last_finished_at
+          setRefreshTick((value) => value + 1)
+        }
+      }
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : 'Unknown sync status error')
+    }
+  }, [])
+
+  const triggerSync = useCallback(async (reason: string) => {
+    setTriggeringSync(true)
+    try {
+      const response = await fetch(`${API_BASE}/api/sync?reason=${encodeURIComponent(reason)}&force=false`, {
+        method: 'POST',
+      })
+      if (!response.ok) throw new Error('Could not trigger sync')
+      const payload: SyncTriggerResponse = await response.json()
+      setSyncState(payload.state)
+      setSyncError(null)
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : 'Unknown sync trigger error')
+    } finally {
+      setTriggeringSync(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void fetchSyncState()
+    const interval = window.setInterval(() => {
+      void fetchSyncState()
+    }, 10000)
+    return () => window.clearInterval(interval)
+  }, [fetchSyncState])
+
+  useEffect(() => {
+    void triggerSync('app_open')
+  }, [triggerSync])
+
+  const syncTone = syncState?.running ? 'running' : syncState?.last_error ? 'warning' : 'ok'
 
   return (
     <div className="app-shell">
       <div className="container">
-        <header className="header">
-          <p className="eyebrow">Training Intelligence</p>
-          <h1>Basecamp Journal</h1>
-          <p className="subtitle">Simple training decisions, not dashboard overload.</p>
+        <header className="header panel">
+          <div className="header-main">
+            <p className="eyebrow">Training Intelligence</p>
+            <h1>Basecamp Journal</h1>
+            <p className="subtitle">Strava and Garmin sync automatically in the background when the app opens.</p>
+          </div>
+
+          <div className={`sync-panel ${syncTone}`}>
+            <p className="sync-label">Data Sync</p>
+            <p className="sync-state">{syncState ? syncState.status_message : 'Checking sync status...'}</p>
+            <p className="sync-meta">{formatSyncMeta(syncState)}</p>
+            <button
+              className="sync-button"
+              onClick={() => void triggerSync('manual')}
+              disabled={triggeringSync || syncState?.running === true}
+              title="Run sync now"
+            >
+              {syncState?.running ? 'Syncing...' : 'Sync now'}
+            </button>
+          </div>
         </header>
+
+        {(syncError || syncState?.last_error) && (
+          <p className="sync-warning" title={syncState?.last_error ?? undefined}>
+            Sync warning: {syncError ?? syncState?.last_error}
+          </p>
+        )}
 
         <nav className="tabs">
           {(['status', 'calendar', 'activity'] as const).map((item) => (
@@ -96,30 +192,47 @@ export function App() {
           ))}
         </nav>
 
-        {tab === 'status' && <StatusView />}
-        {tab === 'calendar' && <CalendarView />}
-        {tab === 'activity' && <ActivityView />}
+        {tab === 'status' && <StatusView refreshTick={refreshTick} />}
+        {tab === 'calendar' && <CalendarView refreshTick={refreshTick} />}
+        {tab === 'activity' && <ActivityView refreshTick={refreshTick} />}
       </div>
     </div>
   )
 }
 
-function StatusView() {
+function StatusView({ refreshTick }: { refreshTick: number }) {
   const [status, setStatus] = useState<Status | null>(null)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    let cancelled = false
+
+    setLoading(true)
     setError(null)
     fetch(`${API_BASE}/api/status`)
       .then((response) => {
         if (!response.ok) throw new Error('Could not load status')
         return response.json()
       })
-      .then(setStatus)
-      .catch((err: Error) => setError(err.message))
-  }, [])
+      .then((payload: Status) => {
+        if (cancelled) return
+        setStatus(payload)
+      })
+      .catch((err: Error) => {
+        if (cancelled) return
+        setError(err.message)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
 
-  if (error) {
+    return () => {
+      cancelled = true
+    }
+  }, [refreshTick])
+
+  if (error && !status) {
     return (
       <section className="panel">
         <p className="state error">Status unavailable: {error}</p>
@@ -149,6 +262,8 @@ function StatusView() {
         <span className={`badge ${readinessTone}`}>{readinessTone}</span>
       </article>
 
+      {loading && <p className="state inline-state">Refreshing after sync...</p>}
+
       <div className="grid">
         <Card label="Weekly Time" value={formatDurationMinutes(weeklyMinutes)} tooltip="Total moving time over the last 7 days." />
         <Card label="Weekly Sessions" value={status.weekly_sessions.toString()} />
@@ -163,7 +278,7 @@ function StatusView() {
   )
 }
 
-function CalendarView() {
+function CalendarView({ refreshTick }: { refreshTick: number }) {
   const [anchorMonth, setAnchorMonth] = useState(() => firstDayOfMonth(new Date()))
   const [days, setDays] = useState<CalendarDay[]>([])
   const [totals, setTotals] = useState({ sessions: 0, duration_hours: 0, tss: 0 })
@@ -186,10 +301,13 @@ function CalendarView() {
 
         const todayKey = fmtDate(new Date())
         const hasToday = payload.days.some((day) => day.date === todayKey)
-        setSelectedDate(hasToday ? todayKey : payload.days[0]?.date ?? null)
+        setSelectedDate((current) => {
+          if (current && payload.days.some((day) => day.date === current)) return current
+          return hasToday ? todayKey : payload.days[0]?.date ?? null
+        })
       })
       .catch((err: Error) => setError(err.message))
-  }, [anchorMonth])
+  }, [anchorMonth, refreshTick])
 
   const calendarCells = useMemo(() => {
     if (days.length === 0) return []
@@ -244,52 +362,74 @@ function CalendarView() {
       </div>
 
       <div className="calendar-wrap panel">
-        <div className="calendar-head">
-          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label) => (
-            <div key={label} className="calendar-head-cell">
-              {label}
-            </div>
-          ))}
-        </div>
+        <div className="calendar-scroll">
+          <div className="calendar-head">
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label) => (
+              <div key={label} className="calendar-head-cell">
+                {label}
+              </div>
+            ))}
+          </div>
 
-        <div className="calendar-grid">
-          {calendarCells.map((day, index) => {
-            if (!day) {
-              return <div key={`blank-${index}`} className="calendar-cell blank" />
-            }
+          <div className="calendar-grid">
+            {calendarCells.map((day, index) => {
+              if (!day) {
+                return <div key={`blank-${index}`} className="calendar-cell blank" />
+              }
 
-            const minutes = minutesFromHours(day.duration_hours)
-            const isSelected = selectedDate === day.date
-            const future = isFutureDay(day.date)
-            const dayClass = dayLoadClass(day, future)
-            const tooltip = formatCalendarTooltip(day)
+              const minutes = minutesFromHours(day.duration_hours)
+              const isSelected = selectedDate === day.date
+              const future = isFutureDay(day.date)
+              const dayClass = dayLoadClass(day, future)
+              const tooltip = formatCalendarTooltip(day)
 
-            return (
-              <button
-                key={day.date}
-                className={`calendar-cell ${dayClass}${isSelected ? ' selected' : ''}`}
-                onClick={() => setSelectedDate(day.date)}
-                title={tooltip}
-              >
-                <p className="calendar-date">{new Date(`${day.date}T00:00:00`).getDate()}</p>
-                <p className="calendar-meta">{day.sessions === 0 ? (future ? 'Upcoming' : 'Rest') : `${day.sessions} sessions`}</p>
-                <p className="calendar-meta">{formatDurationMinutes(minutes)}</p>
-                <p className="calendar-meta">{Math.round(day.tss)} TSS</p>
-              </button>
-            )
-          })}
+              return (
+                <button
+                  key={day.date}
+                  className={`calendar-cell ${dayClass}${isSelected ? ' selected' : ''}`}
+                  onClick={() => setSelectedDate(day.date)}
+                  title={tooltip}
+                >
+                  <p className="calendar-date">{new Date(`${day.date}T00:00:00`).getDate()}</p>
+                  <p className="calendar-meta">{day.sessions === 0 ? (future ? 'Upcoming' : 'Rest') : `${day.sessions} sessions`}</p>
+                  <p className="calendar-meta">{formatDurationMinutes(minutes)}</p>
+                  <p className="calendar-meta">{Math.round(day.tss)} TSS</p>
+                </button>
+              )
+            })}
+          </div>
         </div>
       </div>
 
       <article className="panel selected-day">
         <h3>{selectedDay ? humanDate(selectedDay.date) : 'No day selected'}</h3>
         {selectedDay ? (
-          <div className="grid compact">
-            <Card label="Sessions" value={selectedDay.sessions.toString()} />
-            <Card label="Time" value={formatDurationMinutes(minutesFromHours(selectedDay.duration_hours))} />
-            <Card label="TSS" value={Math.round(selectedDay.tss).toString()} />
-            <Card label="Load" value={dayLoadClass(selectedDay, isFutureDay(selectedDay.date))} />
-          </div>
+          <>
+            <div className="grid compact">
+              <Card label="Sessions" value={selectedDay.sessions.toString()} />
+              <Card label="Time" value={formatDurationMinutes(minutesFromHours(selectedDay.duration_hours))} />
+              <Card label="TSS" value={Math.round(selectedDay.tss).toString()} />
+              <Card label="Load" value={dayLoadClass(selectedDay, isFutureDay(selectedDay.date))} />
+            </div>
+
+            <div className="selected-activities">
+              <p className="selected-activities-title">Activities</p>
+              {selectedDay.activities.length === 0 ? (
+                <p className="state">No activities logged for this day.</p>
+              ) : (
+                <ul>
+                  {selectedDay.activities.map((activity) => (
+                    <li key={activity.id}>
+                      <span>{activity.start_time}</span>
+                      <strong>{activity.sport_type ?? 'Activity'}</strong>
+                      <span>{activity.name ?? 'Untitled activity'}</span>
+                      <span>{formatDurationMinutes(activity.duration_minutes)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </>
         ) : (
           <p className="state">Select a day to inspect details.</p>
         )}
@@ -298,7 +438,7 @@ function CalendarView() {
   )
 }
 
-function ActivityView() {
+function ActivityView({ refreshTick }: { refreshTick: number }) {
   const [activities, setActivities] = useState<Activity[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [detail, setDetail] = useState<ActivityDetail | null>(null)
@@ -314,10 +454,13 @@ function ActivityView() {
       })
       .then((items: Activity[]) => {
         setActivities(items)
-        setSelectedId(items[0]?.id ?? null)
+        setSelectedId((current) => {
+          if (current && items.some((item) => item.id === current)) return current
+          return items[0]?.id ?? null
+        })
       })
       .catch((err: Error) => setError(err.message))
-  }, [])
+  }, [refreshTick])
 
   useEffect(() => {
     if (!selectedId) return
@@ -358,6 +501,7 @@ function ActivityView() {
   return (
     <section className="activity-layout">
       {error && <p className="state error">Activity unavailable: {error}</p>}
+
       <label htmlFor="activity-select">Activity</label>
       <select
         id="activity-select"
@@ -374,8 +518,15 @@ function ActivityView() {
       </select>
 
       {loadingDetail && <p className="state">Loading activity...</p>}
+
       {detail && (
         <>
+          <article className="panel activity-headline">
+            <p>{detail.sport_type ?? 'Activity'}</p>
+            <h2>{detail.name ?? 'Untitled activity'}</h2>
+            <span>{new Date(detail.start_date).toLocaleString()}</span>
+          </article>
+
           <div className="grid">
             <Card label="Duration" value={formatDurationMinutes(Math.round(detail.duration_s / 60))} />
             <Card label="Distance" value={detail.distance_m ? `${(detail.distance_m / 1000).toFixed(1)} km` : '-'} />
@@ -387,6 +538,12 @@ function ActivityView() {
           </div>
 
           <div className="chart-wrap panel">
+            <div className="chart-legend">
+              {hasHrStream && <span className="legend-item hr">Heart Rate</span>}
+              {hasPowerStream && <span className="legend-item power">Power</span>}
+              {hasPaceStream && <span className="legend-item pace">Pace</span>}
+            </div>
+
             {chartData.length > 0 && (hasHrStream || hasPowerStream || hasPaceStream) ? (
               <ResponsiveContainer width="100%" height={320}>
                 <LineChart data={chartData}>
@@ -419,7 +576,7 @@ function ActivityView() {
                 </LineChart>
               </ResponsiveContainer>
             ) : (
-              <p className="state">No stream data for this activity. Re-sync with `basecamp strava sync --streams`.</p>
+              <p className="state">No stream data available for this activity yet.</p>
             )}
           </div>
         </>
@@ -435,6 +592,29 @@ function Card({ label, value, tooltip }: { label: string; value: string; tooltip
       <h3>{value}</h3>
     </article>
   )
+}
+
+function formatSyncMeta(state: SyncSnapshot | null) {
+  if (!state) return 'Loading sync state'
+  if (state.running && state.last_started_at) return `Started ${formatRelativeTime(state.last_started_at)}`
+  if (state.last_success_at) return `Last success ${formatRelativeTime(state.last_success_at)}`
+  if (state.last_finished_at) return `Last attempt ${formatRelativeTime(state.last_finished_at)}`
+  return 'No sync completed yet'
+}
+
+function formatRelativeTime(value: string) {
+  const diffMs = Date.now() - new Date(value).getTime()
+  if (!Number.isFinite(diffMs)) return 'just now'
+
+  const diffMinutes = Math.max(0, Math.round(diffMs / 60000))
+  if (diffMinutes < 1) return 'just now'
+  if (diffMinutes < 60) return `${diffMinutes}m ago`
+
+  const hours = Math.floor(diffMinutes / 60)
+  if (hours < 24) return `${hours}h ago`
+
+  const days = Math.floor(hours / 24)
+  return `${days}d ago`
 }
 
 function minutesFromHours(hours: number) {

@@ -10,6 +10,7 @@ from basecamp.api.services import (
     get_activity_detail,
     list_recent_activities,
 )
+from basecamp.api.sync import sync_manager
 from basecamp.database import init_db
 
 app = FastAPI(title="Basecamp API")
@@ -26,6 +27,8 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup() -> None:
     init_db()
+    # Run sync automatically so non-technical users get fresh data on load.
+    sync_manager.trigger(reason="startup", force=False)
 
 
 @app.get("/api/status", response_model=StatusSummary)
@@ -56,3 +59,17 @@ def get_activity(activity_id: int) -> ActivityDetail:
     if not detail:
         raise HTTPException(status_code=404, detail="Activity not found")
     return ActivityDetail.model_validate(detail)
+
+
+@app.get("/api/sync")
+def get_sync_status() -> dict:
+    return sync_manager.snapshot()
+
+
+@app.post("/api/sync")
+def start_sync(
+    reason: str = Query("manual", description="Reason for sync trigger"),
+    force: bool = Query(False, description="Force sync even if recently updated"),
+) -> dict:
+    started, message = sync_manager.trigger(reason=reason, force=force)
+    return {"started": started, "message": message, "state": sync_manager.snapshot()}
