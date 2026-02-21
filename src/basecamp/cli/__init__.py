@@ -20,11 +20,8 @@ from basecamp.cli import views  # noqa: F401
 
 
 @app.command()
-def dashboard() -> None:
-    """Launch the Streamlit training dashboard."""
-    import subprocess
-    import sys
-    from pathlib import Path
+def dashboard(host: str = "127.0.0.1", port: int = 8000) -> None:
+    """Launch the FastAPI backend for the React dashboard."""
+    import uvicorn
 
-    app_path = Path(__file__).parent.parent / "dashboard" / "app.py"
-    subprocess.run([sys.executable, "-m", "streamlit", "run", str(app_path)])
+    uvicorn.run("basecamp.api.app:app", host=host, port=port, reload=False)

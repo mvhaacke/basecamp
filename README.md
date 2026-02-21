@@ -1,6 +1,6 @@
 # Basecamp
 
-Personal triathlon training analysis tool. Syncs activities from Strava and wellness data from Garmin Connect into a local SQLite database for custom analysis and a Streamlit dashboard.
+Personal triathlon training analysis tool. Syncs activities from Strava and wellness data from Garmin Connect into a local SQLite database for custom analysis and a React + FastAPI dashboard.
 
 ## Setup
 
@@ -37,11 +37,28 @@ basecamp garmin backfill
 basecamp activities                              # Recent activities (--limit N, --sport TYPE)
 basecamp weekly                                  # Weekly training summary
 basecamp wellness                                # Garmin recovery overview (--days N, --date YYYY-MM-DD)
-basecamp dashboard                               # Launch Streamlit dashboard
+basecamp dashboard                               # Launch FastAPI backend for dashboard
 ```
 
-## Dashboard
+## Dashboard (React + FastAPI)
 
-The Streamlit dashboard shows a Performance Management Chart (CTL/ATL/TSB) and Garmin wellness data. Configure athlete thresholds (FTP, run pace, swim CSS, HR zones, weight, age, sex) in Settings to enable sport-specific TSS and calorie computation.
+Run the API:
+
+```bash
+basecamp dashboard
+```
+
+Run the React app in a second terminal:
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+The MVP dashboard includes:
+- Status page (readiness, weekly load, and quick nudge)
+- Calendar page (month totals + daily load trend)
+- Activity deep dive (Strava activity streams + Garmin wellness context)
 
 All data is stored in `basecamp.db` (SQLite) at the project root.
