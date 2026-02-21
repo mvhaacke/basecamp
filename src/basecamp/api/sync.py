@@ -37,7 +37,7 @@ class SyncManager:
                 "runs": self._state.runs,
             }
 
-    def trigger(self, reason: str = "manual", force: bool = False) -> tuple[bool, str]:
+    def trigger(self, reason: str = "manual", force: bool = False, include_streams: bool = False, stream_limit: int | None = None) -> tuple[bool, str]:
         now = datetime.now(timezone.utc)
         with self._lock:
             if self._state.running:
@@ -56,10 +56,10 @@ class SyncManager:
             self._state.last_error = None
             self._state.status_message = "Sync in progress"
 
-        Thread(target=self._run, args=(reason,), daemon=True).start()
+        Thread(target=self._run, args=(reason, include_streams, stream_limit), daemon=True).start()
         return True, "Sync started"
 
-    def _run(self, reason: str) -> None:
+    def _run(self, reason: str, include_streams: bool = False, stream_limit: int | None = None) -> None:
         errors: list[str] = []
 
         try:
@@ -67,7 +67,7 @@ class SyncManager:
             from basecamp.strava.sync import sync_activities
 
             try:
-                sync_activities(include_streams=False)
+                sync_activities(include_streams=include_streams, stream_limit=stream_limit)
             except Exception as exc:
                 errors.append(f"Strava sync: {exc}")
 

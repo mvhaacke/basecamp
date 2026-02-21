@@ -4,6 +4,7 @@
 // useRef: stores a mutable value that persists across renders without triggering re-renders.
 //   Used here to track the last seen `last_finished_at` without causing extra renders.
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import type { SyncSnapshot, SyncTriggerResponse, TabKey } from './types'
 import { API_BASE, formatSyncMeta } from './utils'
 import { ActivityView } from './components/ActivityView'
@@ -42,12 +43,19 @@ export function App() {
     }
   }, [])
 
-  const triggerSync = useCallback(async (reason: string) => {
-    setTriggeringSync(true)
+  const triggerSync = useCallback(async (reason: string, streams = false) => {
+    // flushSync forces React to commit this state update synchronously — before the fetch starts.
+    // Without it, React 18's automatic batching might delay the re-render until after the response
+    // arrives, making the button appear unresponsive on fast localhost connections.
+    flushSync(() => setTriggeringSync(true))
     try {
-      const response = await fetch(`${API_BASE}/api/sync?reason=${encodeURIComponent(reason)}&force=false`, {
-        method: 'POST',
-      })
+      // stream_limit=25 keeps the web button fast — deep backfill is a CLI job
+      // force=true on manual clicks — the cooldown is for automatic background triggers, not user intent
+      const streamParam = streams ? '&include_streams=true&stream_limit=25' : ''
+      const response = await fetch(
+        `${API_BASE}/api/sync?reason=${encodeURIComponent(reason)}&force=true${streamParam}`,
+        { method: 'POST' },
+      )
       if (!response.ok) throw new Error('Could not trigger sync')
       const payload: SyncTriggerResponse = await response.json()
       setSyncState(payload.state)
@@ -89,14 +97,24 @@ export function App() {
             <p className="sync-label">Data Sync</p>
             <p className="sync-state">{syncState ? syncState.status_message : 'Checking sync status...'}</p>
             <p className="sync-meta">{formatSyncMeta(syncState)}</p>
-            <button
-              className="sync-button"
-              onClick={() => void triggerSync('manual')}
-              disabled={triggeringSync || syncState?.running === true}
-              title="Run sync now"
-            >
-              {syncState?.running ? 'Syncing...' : 'Sync now'}
-            </button>
+            <div className="sync-buttons">
+              <button
+                className="sync-button"
+                onClick={() => void triggerSync('manual')}
+                disabled={triggeringSync || syncState?.running === true}
+                title="Sync activities and wellness data"
+              >
+                {triggeringSync || syncState?.running ? 'Syncing...' : 'Sync now'}
+              </button>
+              <button
+                className="sync-button sync-button-streams"
+                onClick={() => void triggerSync('manual', true)}
+                disabled={triggeringSync || syncState?.running === true}
+                title="Sync and fetch time-series stream data for the 25 most recent activities"
+              >
+                {triggeringSync || syncState?.running ? '...' : '+ streams'}
+              </button>
+            </div>
           </div>
         </header>
 

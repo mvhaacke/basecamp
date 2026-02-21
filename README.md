@@ -31,7 +31,7 @@ basecamp garmin auth                             # Login with email/password
 basecamp garmin sync                             # Sync wellness data
 basecamp garmin sync --days 60                   # Sync last N days
 basecamp garmin sync --start 2025-01-01          # Sync from a specific date
-basecamp garmin backfill
+basecamp garmin backfill                         # Re-extract fields from stored raw JSON
 
 # Views
 basecamp activities                              # Recent activities (--limit N, --sport TYPE)
@@ -56,9 +56,9 @@ npm install
 npm run dev
 ```
 
-The MVP dashboard includes:
-- Status page (readiness, weekly load, and quick nudge)
-- Calendar page (month totals + daily load trend)
-- Activity deep dive (Strava activity streams + Garmin wellness context)
+The dashboard includes:
+- **Status** — readiness score, weekly load, body battery, HRV, CTL/TSB
+- **Calendar** — month view with per-day activity strips, zone breakdown, sport totals
+- **Activity** — HR/power/pace time-series charts with Garmin wellness context
 
 All data is stored in `basecamp.db` (SQLite) at the project root.

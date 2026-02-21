@@ -66,6 +66,8 @@ def get_sync_status() -> dict:
 def start_sync(
     reason: str = Query("manual", description="Reason for sync trigger"),
     force: bool = Query(False, description="Force sync even if recently updated"),
+    include_streams: bool = Query(False, description="Also fetch time-series stream data"),
+    stream_limit: int | None = Query(None, description="Max activities to fetch streams for (None = all)"),
 ) -> dict:
-    started, message = sync_manager.trigger(reason=reason, force=force)
+    started, message = sync_manager.trigger(reason=reason, force=force, include_streams=include_streams, stream_limit=stream_limit)
     return {"started": started, "message": message, "state": sync_manager.snapshot()}

@@ -114,6 +114,11 @@ body {
   font-size: 0.84rem;
 }
 
+.sync-buttons {
+  display: flex;
+  gap: 0.4rem;
+}
+
 .sync-button {
   border: 0;
   border-radius: 10px;
@@ -122,6 +127,11 @@ body {
   font-weight: 700;
   cursor: pointer;
   padding: 0.55rem 0.82rem;
+}
+
+.sync-button-streams {
+  background: linear-gradient(140deg, #4a6fa5, #5a85c0);
+  font-weight: 600;
 }
 
 .sync-button:disabled {

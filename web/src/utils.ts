@@ -81,7 +81,9 @@ export function toValidNumber(value: number | undefined) {
 }
 
 export function velocityToPace(mPerS: number | undefined) {
-  if (mPerS == null || !Number.isFinite(mPerS) || mPerS <= 0) return null
+  // Below 0.5 m/s (~1.8 km/h) is effectively stopped — a traffic light or pause.
+  // Returning null lets Recharts break the line rather than drawing a huge spike.
+  if (mPerS == null || !Number.isFinite(mPerS) || mPerS < 0.5) return null
   return 1000 / mPerS
 }
 

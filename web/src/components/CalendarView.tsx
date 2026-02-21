@@ -194,8 +194,8 @@ export function CalendarView({ refreshTick }: { refreshTick: number }) {
                       title={tooltip}
                     >
                       <p className="calendar-date">{new Date(`${day.date}T00:00:00`).getDate()}</p>
-                      <p className="calendar-meta">{day.sessions === 0 ? (future ? 'Upcoming' : 'Rest') : `${day.sessions} sessions`}</p>
-                      <p className="calendar-meta">{formatDurationMinutes(minutes)}</p>
+                      <p className="calendar-meta">{day.sessions === 0 ? (future ? 'Upcoming' : 'Rest') : `${day.sessions} ${day.sessions === 1 ? 'session' : 'sessions'}`}</p>
+                      {day.sessions > 0 && <p className="calendar-meta">{formatDurationMinutes(minutes)}</p>}
                       <div className="activity-mini-stack">
                         {day.activities.slice(0, 3).map((activity) => (
                           <span

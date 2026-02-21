@@ -86,7 +86,6 @@ export function ActivityView({ refreshTick }: { refreshTick: number }) {
     <section className="activity-layout">
       {error && <p className="state error">Activity unavailable: {error}</p>}
 
-      <label htmlFor="activity-select">Activity</label>
       <select
         id="activity-select"
         name="activity"
