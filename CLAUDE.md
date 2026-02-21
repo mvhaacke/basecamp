@@ -27,7 +27,8 @@ basecamp strava backfill      # Re-extract fields from stored raw_json
 basecamp garmin auth          # Garmin Connect login
 basecamp garmin sync          # Sync wellness data (--days N, --start/--end date range)
 basecamp garmin backfill      # Re-extract Garmin fields
-basecamp dashboard            # Launch Streamlit training dashboard
+basecamp dashboard            # Launch FastAPI backend (port 8000)
+cd web && npm run dev         # Launch React dev server (port 5173)
 basecamp activities           # List activities (--limit N, --sport TYPE)
 basecamp weekly               # Weekly training summary
 basecamp wellness             # Garmin recovery overview
@@ -46,11 +47,16 @@ garmin/sync.py          Garmin Connect wellness sync
 analytics/tss.py        TSS: power (cycling), pace (running), CSS (swim), HR (non-tri), duration fallback
 analytics/pmc.py        PMC: CTL/ATL/TSB via pandas EWMA
 analytics/wellness.py   HRV data loading with baseline zones
-dashboard/
-    app.py              Streamlit entry point with navigation
-    pages/dashboard.py  PMC + HRV charts
-    pages/activities.py Activity list with filters
-    pages/settings.py   Athlete thresholds (FTP, paces, HR, weight, age, sex) + sync buttons
+api/
+    app.py          FastAPI app — CORS, 6 endpoints, startup hook
+    services.py     Business logic (queries DB, builds response dicts)
+    schemas.py      Pydantic response models (validates/documents API shapes)
+    sync.py         Background SyncManager (thread-safe, rate-limited)
+web/                React frontend (Vite + TypeScript)
+    src/App.tsx     Main shell: sync state, tab navigation
+    src/components/ StatusView, CalendarView, ActivityView, Card
+    src/types.ts    Shared TypeScript types (mirrors API schemas)
+    src/utils.ts    Pure helper functions (formatting, date math)
 ```
 
 ## Key Patterns
