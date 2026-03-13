@@ -88,9 +88,13 @@ export function App() {
       <div className="container">
         <header className="header panel">
           <div className="header-main">
-            <p className="eyebrow">Training Intelligence</p>
-            <h1>Basecamp Journal</h1>
-            <p className="subtitle">Strava and Garmin sync automatically in the background when the app opens.</p>
+            <div className="header-identity">
+              <img src="/basecamp.png" alt="Basecamp" className="header-logo" />
+              <div>
+                <h1>Basecamp</h1>
+                <p className="subtitle">Your training journal</p>
+              </div>
+            </div>
           </div>
 
           <div className={`sync-panel ${syncTone}`}>

@@ -86,11 +86,11 @@ class SyncManager:
 
             if errors:
                 self._state.last_error = " | ".join(errors)
-                self._state.status_message = f"Completed with warnings ({reason})"
+                self._state.status_message = "Synced with warnings"
             else:
                 self._state.last_error = None
                 self._state.last_success_at = finished
-                self._state.status_message = f"Synced ({reason})"
+                self._state.status_message = "Synced"
 
 
 def _iso(value: datetime | None) -> str | None:
